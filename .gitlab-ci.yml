@@ -17,6 +17,7 @@ upload_egg:
     # update version to put custom ContextLogic version
     - version_cl="return version+cl$CI_PIPELINE_ID"
     - sed -i "s/return version/$version_cl/g" mongoengine/__init__.py
+    - cat mongoengine/__init__.py
     - pip install .
     - pip show $CI_PROJECT_NAME
     
