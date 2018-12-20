@@ -12,12 +12,11 @@ upload_egg:
     - pip install pyOpenSSL ndg-httpsclient pyasn1
     - pip install -U devpi-client
 
-    # make sure there's only 1 "version=" line in the mongoengine/__init__.py file
-    - (if [ "$(sed -n "/.*\(return version\).*/p" mongoengine/__init__.py | wc -l)" == "1" ]; then echo "Found the version number"; else echo "Fail"; exit 33; fi);
+    # make sure there's only 1 "version=" line in setup.py file
+    - (if [ "$(sed -n "/.*\(return version\).*/p" setup.py | wc -l)" == "1" ]; then echo "Found the version number"; else echo "Fail"; exit 33; fi);
     # update version to put custom ContextLogic version
     - version_cl="return version+cl$CI_PIPELINE_ID"
-    - sed -i "s/return version/$version_cl/g" mongoengine/__init__.py
-    - cat mongoengine/__init__.py
+    - sed -i "s/return version/$version_cl/g" setup.py
     - pip install .
     - pip show $CI_PROJECT_NAME
     
