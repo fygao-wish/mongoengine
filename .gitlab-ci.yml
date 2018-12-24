@@ -1,3 +1,6 @@
+variables:
+  BRANCH_NAME: master
+
 image: ubuntu:14.04
   
 upload_egg:
@@ -26,4 +29,4 @@ upload_egg:
     - devpi use $INDEX
     - devpi upload
   only:
-    - master
+    - $BRANCH_NAME
