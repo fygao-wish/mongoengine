@@ -895,7 +895,7 @@ class Document(BaseDocument):
     @classmethod
     def find(cls, spec, fields=None, skip=0, limit=0, sort=None,
              slave_ok=True, excluded_fields=None, max_time_ms=None,
-             timeout_value=NO_TIMEOUT_DEFAULT,**kwargs):
+             timeout_value=NO_TIMEOUT_DEFAULT, allow_async=True, **kwargs):
         # If the client has been initialized, use the proxy
         proxy_client = cls._get_proxy_client()
         if proxy_client:
@@ -918,12 +918,12 @@ class Document(BaseDocument):
             cur, set_comment = cls.find_raw(spec, fields, skip, limit, sort,
                                slave_ok=slave_ok,
                                excluded_fields=excluded_fields,
-                               max_time_ms=max_time_ms,**kwargs)
+                               max_time_ms=max_time_ms, allow_async=allow_async, **kwargs)
 
             try:
                 return [
                     cls._from_augmented_son(d, fields, excluded_fields)
-                    for d in cls._iterate_cursor(cur)
+                    for d in cls._iterate_cursor(cur, allow_async=allow_async)
                 ]
             except pymongo.errors.ExecutionTimeout:
                 execution_timeout_logger.info({
@@ -955,16 +955,16 @@ class Document(BaseDocument):
     @classmethod
     def find_iter(cls, spec, fields=None, skip=0, limit=0, sort=None,
                   slave_ok=True, timeout=True, batch_size=10000,
-                  excluded_fields=None, max_time_ms=0, **kwargs):
+                  excluded_fields=None, max_time_ms=0, allow_async=True, **kwargs):
         def _old_find_iter():
             last_doc = None
             cur, set_comment = cls.find_raw(spec, fields, skip, limit,
                                sort, slave_ok=slave_ok, timeout=timeout,
                                batch_size=batch_size,
                                excluded_fields=excluded_fields,
-                               max_time_ms=max_time_ms,**kwargs)
+                               max_time_ms=max_time_ms, allow_async=allow_async, **kwargs)
             try:
-                for doc in cls._iterate_cursor(cur):
+                for doc in cls._iterate_cursor(cur, allow_async=allow_async):
                     try:
                         last_doc = cls._from_augmented_son(doc, fields, excluded_fields)
                         yield last_doc
@@ -1067,26 +1067,27 @@ class Document(BaseDocument):
             cls.cleanup_trace(set_comment)
 
     @classmethod
-    def _iterate_cursor(cls, cur):
+    def _iterate_cursor(cls, cur, allow_async=True):
         """
             Iterates over a cursor, gracefully handling AutoReconnect exceptions
         """
-        while True:
-            with log_slow_event('getmore', cur.collection.name, None):
-                # the StopIteration from .next() will bubble up and kill
-                # this while loop
-                doc = cur.next()
+        with cls._pymongo(allow_async).database.connection.start_request():
+            while True:
+                with log_slow_event('getmore', cur.collection.name, None):
+                    # the StopIteration from .next() will bubble up and kill
+                    # this while loop
+                    doc = cur.next()
 
-                # handle pymongo letting an error document slip through
-                # (T18431 / CS-22167). convert it into an exception
-                if '$err' in doc:
-                    err_code = None
-                    if 'code' in doc:
-                        err_code = doc['code']
+                    # handle pymongo letting an error document slip through
+                    # (T18431 / CS-22167). convert it into an exception
+                    if '$err' in doc:
+                        err_code = None
+                        if 'code' in doc:
+                            err_code = doc['code']
 
-                    raise pymongo.errors.OperationFailure(doc['$err'],
-                                                          err_code)
-            yield doc
+                        raise pymongo.errors.OperationFailure(doc['$err'],
+                                                            err_code)
+                yield doc
 
     @classmethod
     def find_one(cls, spec, fields=None, skip=0, sort=None, slave_ok=True,

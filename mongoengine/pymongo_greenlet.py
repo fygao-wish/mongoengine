@@ -647,7 +647,7 @@ class GreenletClient(object):
         def _inner_connect(io_loop, *args, **kwargs):
             # asynchronously create a MongoClient using our IOLoop
             try:
-                kwargs['use_greenlets'] = False
+                kwargs['use_greenlets'] = True
                 kwargs['_pool_class'] = GreenletPool
                 kwargs['_event_class'] = functools.partial(GreenletEvent,
                                                            io_loop)
