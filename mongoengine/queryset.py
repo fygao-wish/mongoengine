@@ -394,7 +394,7 @@ class QuerySet(object):
                 'timeout': self._timeout,
             }
             if self._loaded_fields:
-                cursor_args['fields'] = self._loaded_fields
+                cursor_args['projection'] = self._loaded_fields
 
             try:
                 self._cursor_obj = self._collection.find(self._query,

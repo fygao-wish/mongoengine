@@ -765,24 +765,6 @@ class Document(BaseDocument):
                  slave_ok=True, find_one=False, allow_async=True, hint=None,
                  batch_size=10000, excluded_fields=None, max_time_ms=None,
                  comment=None, from_mengine=True, **kwargs):
-        proxy_client = cls._get_proxy_client()
-        if not from_mengine and proxy_client:
-            if cls._get_read_decider():
-                if 'comment' not in kwargs or kwargs['comment'] is None:
-                    kwargs['comment'] = MongoComment.get_comment()
-                is_scatter_gather = cls.is_scatter_gather(filter)
-                set_comment = cls.attach_trace(
-                    kwargs['comment'], is_scatter_gather)
-                try:
-                    return proxy_client.instance().find_raw(
-                        cls, filter, fields=fields, skip=skip,
-                        limit=limit, sort=sort, slave_ok=slave_ok,
-                        excluded_fields=excluded_fields, max_time_ms=max_time_ms,
-                        batch_size=batch_size, hint=hint,
-                        find_one=find_one, **kwargs
-                    ), False
-                finally:
-                    cls.cleanup_trace(set_comment)
         if kwargs.get("timeout") is False and slave_ok != "offline":
             trace = "".join(traceback.format_stack())
             notimeout_cursor_logger.info({
@@ -810,7 +792,7 @@ class Document(BaseDocument):
         filter = cls._update_filter(filter, **kwargs)
 
         # transform fields to include
-        fields = cls._transform_fields(fields, excluded_fields)
+        projection = cls._transform_fields(fields, excluded_fields)
 
         # transform sort
         if sort:
@@ -844,7 +826,7 @@ class Document(BaseDocument):
                 set_comment = False
 
                 with log_slow_event('find', cls._meta['collection'], filter):
-                    cur = cls._pymongo(allow_async).find(filter, fields,
+                    cur = cls._pymongo(allow_async).find(filter, projection,
                                                          skip=skip, limit=limit, sort=sort,
                                                          read_preference=slave_ok.read_pref,
                                                          tag_sets=slave_ok.tags,
@@ -890,49 +872,12 @@ class Document(BaseDocument):
     def explain(cls, filter, fields=None, skip=0, limit=0, sort=None,
                 slave_ok=True, excluded_fields=None, max_time_ms=None,
                 timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
-        # If the client has been initialized, use the proxy
-        proxy_client = cls._get_proxy_client()
-        if proxy_client:
-            if cls._get_read_decider():
-                if 'comment' not in kwargs or kwargs['comment'] is None:
-                    kwargs['comment'] = MongoComment.get_comment()
-                is_scatter_gather = cls.is_scatter_gather(filter)
-                set_comment = cls.attach_trace(
-                    kwargs['comment'], is_scatter_gather)
-                try:
-                    return proxy_client.instance().explain(
-                        cls, filter, fields=fields, skip=skip,
-                        limit=limit, sort=sort, slave_ok=slave_ok,
-                        excluded_fields=excluded_fields, max_time_ms=max_time_ms,
-                        timeout_value=timeout_value, **kwargs
-                    )
-                finally:
-                    cls.cleanup_trace(set_comment)
         raise Exception("Explain not supported")
 
     @classmethod
     def find(cls, filter, fields=None, skip=0, limit=0, sort=None,
              slave_ok=True, excluded_fields=None, max_time_ms=None,
              timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
-        # If the client has been initialized, use the proxy
-        proxy_client = cls._get_proxy_client()
-        if proxy_client:
-            if cls._get_read_decider():
-                if 'comment' not in kwargs or kwargs['comment'] is None:
-                    kwargs['comment'] = MongoComment.get_comment()
-                is_scatter_gather = cls.is_scatter_gather(filter)
-                set_comment = cls.attach_trace(
-                    kwargs['comment'], is_scatter_gather)
-                try:
-                    return proxy_client.instance().find(
-                        cls, filter, fields=fields, skip=skip,
-                        limit=limit, sort=sort, slave_ok=slave_ok,
-                        excluded_fields=excluded_fields, max_time_ms=max_time_ms,
-                        timeout_value=timeout_value, **kwargs
-                    )
-                finally:
-                    cls.cleanup_trace(set_comment)
-
         for i in xrange(cls.MAX_AUTO_RECONNECT_TRIES):
             cur, set_comment = cls.find_raw(filter, fields, skip, limit, sort,
                                             slave_ok=slave_ok,
@@ -998,29 +943,8 @@ class Document(BaseDocument):
                 cls.cleanup_trace(set_comment)
 
         # If the client has been initialized, use the proxy
-        proxy_client = cls._get_proxy_client()
-        if proxy_client:
-            if cls._get_read_decider():
-                if 'comment' not in kwargs or kwargs['comment'] is None:
-                    kwargs['comment'] = MongoComment.get_comment()
-                is_scatter_gather = cls.is_scatter_gather(filter)
-                set_comment = cls.attach_trace(
-                    kwargs['comment'], is_scatter_gather)
-                cls.cleanup_trace(set_comment)
-                for doc in proxy_client.instance().find_iter(
-                    cls, filter, fields=fields, skip=skip,
-                    limit=limit, sort=sort, slave_ok=slave_ok,
-                    batch_size=batch_size,
-                    excluded_fields=excluded_fields, max_time_ms=max_time_ms,
-                    **kwargs
-                ):
-                    yield doc
-            else:
-                for doc in _old_find_iter():
-                    yield doc
-        else:
-            for doc in _old_find_iter():
-                yield doc
+        for doc in _old_find_iter():
+            yield doc
 
     @classmethod
     def aggregate(cls, pipeline=None, **kwargs):
@@ -1045,18 +969,6 @@ class Document(BaseDocument):
                  slave_ok=True, timeout=True, excluded_fields=None,
                  max_time_ms=None, timeout_value=NO_TIMEOUT_DEFAULT,
                  **kwargs):
-
-        proxy_client = cls._get_proxy_client()
-        if proxy_client:
-            if cls._get_read_decider():
-                key = cls._transform_key(key, cls)[0]
-                return proxy_client.instance().distinct(
-                    cls, filter, distinct_key=key, fields=fields, skip=skip,
-                    limit=limit, sort=sort, slave_ok=slave_ok,
-                    excluded_fields=excluded_fields, max_time_ms=max_time_ms,
-                    timeout_value=timeout_value, **kwargs
-                )
-
         cur, set_comment = cls.find_raw(filter, fields, skip, limit,
                                         sort, slave_ok=slave_ok, timeout=timeout,
                                         excluded_fields=excluded_fields,
@@ -1113,25 +1025,6 @@ class Document(BaseDocument):
     def find_one(cls, filter, fields=None, skip=0, sort=None, slave_ok=True,
                  excluded_fields=None, max_time_ms=None,
                  timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
-        # If the client has been initialized, use the proxy
-        proxy_client = cls._get_proxy_client()
-        if proxy_client:
-            if cls._get_read_decider():
-                if 'comment' not in kwargs or kwargs['comment'] is None:
-                    kwargs['comment'] = MongoComment.get_comment()
-                kwargs['find_one'] = True
-                is_scatter_gather = cls.is_scatter_gather(filter)
-                set_comment = cls.attach_trace(
-                    kwargs['comment'], is_scatter_gather)
-                try:
-                    return proxy_client.instance().find(
-                        cls, filter, fields=fields, skip=skip,
-                        sort=sort, slave_ok=slave_ok,
-                        excluded_fields=excluded_fields, max_time_ms=max_time_ms,
-                        timeout_value=timeout_value, **kwargs
-                    )
-                finally:
-                    cls.cleanup_trace(set_comment)
 
         cur, set_comment = cls.find_raw(filter, fields, skip=skip, sort=sort,
                                         slave_ok=slave_ok, find_one=True,
@@ -1201,18 +1094,6 @@ class Document(BaseDocument):
 
         set_comment = cls.attach_trace(
             MongoComment.get_query_comment(), is_scatter_gather)
-
-        proxy_client = cls._get_proxy_client()
-        if proxy_client:
-            if cls._get_write_decider():
-                try:
-                    return proxy_client.instance().find_and_modify(
-                        cls, filter, sort=sort, remove=remove, update=update, new=new,
-                        fields=fields, upsert=upsert, excluded_fields=excluded_fields,
-                        **kwargs
-                    )
-                finally:
-                    cls.cleanup_trace(set_comment)
 
         try:
             with log_slow_event("find_and_modify", cls._meta['collection'], filter):
