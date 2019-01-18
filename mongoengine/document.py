@@ -37,7 +37,6 @@ OPS_EMAIL = 'ops@wish.com'
 high_offset_logger = logging.getLogger('sweeper.prod.mongodb_high_offset')
 execution_timeout_logger = logging.getLogger(
     'sweeper.prod.mongodb_execution_timeout')
-notimeout_cursor_logger = logging.getLogger('sweeper.prod.mongodb_notimeout')
 
 
 class CLSContext(object):
@@ -765,14 +764,6 @@ class Document(BaseDocument):
                  slave_ok=True, find_one=False, allow_async=True, hint=None,
                  batch_size=10000, excluded_fields=None, max_time_ms=None,
                  comment=None, from_mengine=True, **kwargs):
-        if kwargs.get("timeout") is False and slave_ok != "offline":
-            trace = "".join(traceback.format_stack())
-            notimeout_cursor_logger.info({
-                'trace': trace,
-            })
-            warnings.warn('Avoid noTimeout cursors on primaries')
-            del kwargs["timeout"]
-
         is_scatter_gather = cls.is_scatter_gather(filter)
 
         # HACK [adam May/2/16]: log high-offset queries with sorts to TD. these
@@ -829,8 +820,7 @@ class Document(BaseDocument):
                     cur = cls._pymongo(allow_async).find(filter, projection,
                                                          skip=skip, limit=limit, sort=sort,
                                                          read_preference=slave_ok.read_pref,
-                                                         tag_sets=slave_ok.tags,
-                                                         **kwargs)
+                                                         tag_sets=slave_ok.tags)
 
                     # max_time_ms <= 0 means its disabled, None means
                     # use default value, otherwise use the value specified
@@ -918,12 +908,12 @@ class Document(BaseDocument):
 
     @classmethod
     def find_iter(cls, filter, fields=None, skip=0, limit=0, sort=None,
-                  slave_ok=True, timeout=True, batch_size=10000,
+                  slave_ok=False, batch_size=10000,
                   excluded_fields=None, max_time_ms=0, **kwargs):
         def _old_find_iter():
             last_doc = None
             cur, set_comment = cls.find_raw(filter, fields, skip, limit,
-                                            sort, slave_ok=slave_ok, timeout=timeout,
+                                            sort, slave_ok=slave_ok,
                                             batch_size=batch_size,
                                             excluded_fields=excluded_fields,
                                             max_time_ms=max_time_ms, **kwargs)
@@ -948,14 +938,6 @@ class Document(BaseDocument):
 
     @classmethod
     def aggregate(cls, pipeline=None, **kwargs):
-        proxy_client = cls._get_proxy_client()
-        if proxy_client:
-            if cls._get_read_decider():
-                results = []
-                for doc in proxy_client.instance().aggregate(
-                        cls, pipeline=pipeline):
-                    results.append(doc)
-                return {'result': results}
         result = cls._pymongo().aggregate(
             pipeline,
             read_preference=pymongo.read_preferences.ReadPreference.SECONDARY)
@@ -966,11 +948,11 @@ class Document(BaseDocument):
 
     @classmethod
     def distinct(cls, filter, key, fields=None, skip=0, limit=0, sort=None,
-                 slave_ok=True, timeout=True, excluded_fields=None,
+                 slave_ok=True, excluded_fields=None,
                  max_time_ms=None, timeout_value=NO_TIMEOUT_DEFAULT,
                  **kwargs):
         cur, set_comment = cls.find_raw(filter, fields, skip, limit,
-                                        sort, slave_ok=slave_ok, timeout=timeout,
+                                        sort, slave_ok=slave_ok,
                                         excluded_fields=excluded_fields,
                                         max_time_ms=max_time_ms, **kwargs)
 
@@ -987,7 +969,6 @@ class Document(BaseDocument):
                     filter, key, fields=fields,
                     skip=skip, limit=limit,
                     sort=sort, slave_ok=slave_ok,
-                    timeout=timeout,
                     excluded_fields=excluded_fields,
                     max_time_ms=cls.RETRY_MAX_TIME_MS,
                     timeout_value=timeout_value,
