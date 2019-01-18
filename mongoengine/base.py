@@ -1,4 +1,3 @@
-from queryset import QuerySet, QuerySetManager
 from queryset import DoesNotExist, MultipleObjectsReturned
 
 import copy
@@ -473,7 +472,6 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
             'index_background': True,
             'index_drop_dups': False,
             'index_opts': {},
-            'queryset_class': QuerySet,
             'db_name': None,
 
             'force_insert': False,
@@ -503,55 +501,6 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
             if mongoengine.connection._default_db == 'sweeper' and 'clroot/sweeper' in inspect.getfile(new_class):
                 new_class.meta['shard_key'] = False
                 new_class._meta['db_name'] = 'sweeper-unsharded'
-
-        # Provide a default queryset unless one has been manually provided
-        if not hasattr(new_class, 'objects'):
-            new_class.objects = QuerySetManager()
-
-        user_indexes = [QuerySet._build_index_spec(new_class, spec)
-                        for spec in meta['indexes']] + base_indexes
-        new_class._meta['indexes'] = user_indexes
-
-        unique_indexes = []
-        for field_name, field in new_class._fields.items():
-            # Generate a list of indexes needed by uniqueness constraints
-            if field.unique:
-                field.required = True
-                unique_fields = [field.db_field]
-
-                # Add any unique_with fields to the back of the index spec
-                if field.unique_with:
-                    if isinstance(field.unique_with, basestring):
-                        field.unique_with = [field.unique_with]
-
-                    # Convert unique_with field names to real field names
-                    unique_with = []
-                    for other_name in field.unique_with:
-                        parts = other_name.split('.')
-                        # Lookup real name
-                        parts = QuerySet._lookup_field(new_class, parts)
-                        name_parts = [part.db_field for part in parts]
-                        unique_with.append('.'.join(name_parts))
-                        # Unique field should be required
-                        parts[-1].required = True
-                    unique_fields += unique_with
-
-                # Add the new index to the list
-                index = [(f, pymongo.ASCENDING) for f in unique_fields]
-                unique_indexes.append(index)
-
-            # Check for custom primary key
-            if field.primary_key:
-                current_pk = new_class._meta['id_field']
-                if current_pk and current_pk != field_name:
-                    raise ValueError('Cannot override primary key field')
-
-                if not current_pk:
-                    new_class._meta['id_field'] = field_name
-                    # Make 'Document.id' an alias to the real primary key field
-                    new_class.id = field
-
-        new_class._meta['unique_indexes'] = unique_indexes
 
         if not new_class._meta['id_field']:
             new_class._meta['id_field'] = 'id'
