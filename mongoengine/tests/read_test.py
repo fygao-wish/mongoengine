@@ -1,0 +1,155 @@
+import unittest
+
+from mongoengine.tests.model.testdoc import TestDoc
+from mongoengine.connection import connect
+
+
+class ReadTests(unittest.TestCase):
+    def setUp(self):
+        connect(db_names=['test'])
+
+    def _clear(self):
+        TestDoc.remove({'test_pk': {'$gt': -1}})
+
+    def _feed_data(self, limit, exception=False):
+        with TestDoc.bulk():
+            for i in range(limit):
+                entry = TestDoc(test_int=i, test_str=str(i),
+                                test_pk=i, test_list=[i])
+                entry.bulk_save()
+            if exception:
+                raise Exception()
+
+    def test_find(self):
+        limit = 10000
+        self._clear()
+        self._feed_data(limit)
+        docs = TestDoc.find({}, limit=100)
+        for doc in docs:
+            self.assertEquals(doc.test_pk, doc.test_int)
+            self.assertEquals(doc.test_pk, int(doc.test_str))
+            self.assertEquals(doc.test_pk, doc.test_list[0])
+        docs = TestDoc.find({}, limit=100, fields=['test_pk'])
+        for doc in docs:
+            self.assertEquals(getattr(doc, 'test_int'), None)
+            self.assertEquals(getattr(doc, 'test_str'), None)
+            self.assertEquals(getattr(doc, 'test_list'), [])
+        docs = TestDoc.find({}, limit=100, excluded_fields=[
+                            'test_pk', 'test_int', 'test_list'])
+        for doc in docs:
+            self.assertEquals(getattr(doc, 'test_int'), None)
+            self.assertEquals(getattr(doc, 'test_pk'), None)
+            self.assertTrue(getattr(doc, 'test_str') is not None)
+            self.assertEquals(getattr(doc, 'test_list'), [])
+
+        docs = TestDoc.find({}, skip=10, limit=10, sort=[('test_pk', -1)])
+        for index, doc in enumerate(docs):
+            self.assertEquals(doc.test_pk, limit - index - 11)
+
+        TestDoc.ALLOW_TIMEOUT_RETRY = False
+        docs = TestDoc.find({}, max_time_ms=1, timeout_value=TestDoc(
+            test_pk=101, test_int=101))
+        self.assertEquals(docs.test_pk, 101)
+
+        docs_iter = TestDoc.find_iter({}, batch_size=10, max_time_ms=100)
+        for doc in docs_iter:
+            self.assertEquals(doc.test_pk, doc.test_int)
+
+    def test_distinct(self):
+        limit = 100
+        self._clear()
+        self._feed_data(limit)
+        docs = TestDoc.distinct({}, key='test_int')
+        self.assertEquals(len(docs), limit)
+
+        TestDoc.update({
+            'test_pk': {'$lt': 10}
+        }, {
+            '$set': {
+                'test_int': 1
+            }
+        })
+        docs = TestDoc.distinct({}, key='test_int')
+        self.assertEquals(len(docs), limit - 10 + 1)
+
+    def test_reload(self):
+        self._clear()
+        self._feed_data(1)
+        doc = TestDoc.find_one({})
+        TestDoc.update(
+            doc._update_one_key(),
+            {
+                '$set': {
+                    'test_int': 1000
+                }
+            })
+        self.assertEquals(doc.test_int, 0)
+        doc.reload()
+        self.assertEquals(doc.test_int, 1000)
+
+    def test_find_and_modify(self):
+        self._clear()
+        self._feed_data(100)
+        doc = TestDoc.find_and_modify(
+            {
+                'test_pk': {'$lt': 10}
+            },
+            {
+                '$set': {
+                    'test_int': 1000
+                }
+            },
+            sort={
+                'test_pk': -1
+            },
+            fields=['test_int']
+        )
+        self.assertEquals(doc.test_int, 9)
+        self.assertEquals(TestDoc.count({'test_int': 1000}), 1)
+        self.assertEquals(doc.test_str, None)
+        TestDoc.find_and_modify(
+            {
+                'test_pk': 101
+            },
+            {
+                '$set': {
+                    'test_int': 101
+                }
+            },
+            sort={
+                'test_pk': -1
+            },
+            fields=['test_int'],
+            upsert=True,
+        )
+        self.assertEquals(TestDoc.count({'test_pk': 101}), 1)
+        doc = TestDoc.find_and_modify(
+            {
+                'test_pk': {'$lt': 10}
+            },
+            {
+                '$set': {
+                    'test_int': 1000 * 2
+                }
+            },
+            sort={
+                'test_pk': -1
+            },
+            new=True,
+        )
+        self.assertEquals(doc.test_int, 1000 * 2)
+        doc = TestDoc.find_and_modify(
+            {},
+            {},
+            sort={
+                'test_pk': -1
+            },
+            remove=True,
+        )
+        self.assertEquals(doc.test_pk, 101)
+        self.assertEquals(TestDoc.count({}), 100)
+
+
+if __name__ == '__main__':
+    suite = unittest.TestLoader().loadTestsFromTestCase(ReadTests)
+    unittest.TextTestRunner(verbosity=2).run(suite)

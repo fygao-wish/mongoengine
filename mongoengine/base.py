@@ -14,13 +14,16 @@ from collections import defaultdict
 _document_registry = {}
 _embedded_doc_registry = {}
 
+
 def get_document(name):
     return _document_registry[name]
+
 
 def get_embedded_doc_fields(cls):
     if cls not in _embedded_doc_registry:
         return {}
     return _embedded_doc_registry[cls]
+
 
 class ValidationError(Exception):
     pass
@@ -67,6 +70,7 @@ class UnloadedFieldLogHandler(UnloadedFieldHandler):
             }
             self.field_logger.info(exc_info)
 
+
 _unloaded_field_handler = UnloadedFieldNoopHandler()
 
 
@@ -111,8 +115,8 @@ class FieldStatus(object):
     """
         Enum representing field status
     """
-    NOT_LOADED  = 1
-    LOADED      = 2
+    NOT_LOADED = 1
+    LOADED = 2
 
 
 class BaseField(object):
@@ -140,7 +144,7 @@ class BaseField(object):
         self.primary_key = primary_key
         self.validation = validation
         self.choices = choices
-        self.dup_check= dup_check
+        self.dup_check = dup_check
         self._in_list = False
 
     def __get__(self, instance, owner):
@@ -207,7 +211,7 @@ class BaseField(object):
 
         if value not in self.choices:
             raise ValidationError("Value must be one of %s."
-                % unicode(self.choices))
+                                  % unicode(self.choices))
 
     def _validate(self, value):
         self.validate_choices(value)
@@ -216,12 +220,13 @@ class BaseField(object):
         if self.validation is not None:
             if callable(self.validation):
                 if not self.validation(value):
-                    raise ValidationError('Value does not match custom' \
+                    raise ValidationError('Value does not match custom'
                                           'validation method.')
             else:
                 raise ValueError('validation argument must be a callable.')
 
         self.validate(value)
+
 
 class ObjectIdField(BaseField):
     """An field wrapper around MongoDB's ObjectIds.
@@ -237,7 +242,7 @@ class ObjectIdField(BaseField):
                 return bson.objectid.ObjectId(unicode(value))
             except Exception, e:
                 if self.dup_check:
-                    #e.message attribute has been deprecated since Python 2.6
+                    # e.message attribute has been deprecated since Python 2.6
                     raise ValidationError(unicode(e))
                 else:
                     return value
@@ -255,9 +260,12 @@ class ObjectIdField(BaseField):
         except:
             raise ValidationError('Invalid Object ID')
 
+
 '''
 A class for specifying relationships in Mongo Documents
 '''
+
+
 class Relationship(object):
 
     '''
@@ -267,12 +275,13 @@ class Relationship(object):
     related_id_field - The name of the attribute in the related docment
                         which id_field references
     '''
+
     def __init__(self, model, id_field, related_id_field="id", multi=False):
-        self.model            = model
-        self.id_field         = id_field
+        self.model = model
+        self.id_field = id_field
         self.related_id_field = related_id_field
-        self.multi            = multi
-        self.name             = None
+        self.multi = multi
+        self.name = None
 
     def __get__(self, instance, owner):
         if instance is None:
@@ -296,6 +305,7 @@ class Relationship(object):
             self.model = get_document(self.model)
         if not issubclass(self.model, BaseDocument):
             raise RuntimeError("model must be a subclass of BaseDocument")
+
 
 class DocumentMetaclass(type):
     """Metaclass for all documents.
@@ -325,7 +335,7 @@ class DocumentMetaclass(type):
                 superclasses[base._class_name] = base
                 superclasses.update(base._superclasses)
 
-                #inherit field_names from superclass
+                # inherit field_names from superclass
                 field_to_name_map.update(
                     [(_field.db_field, attr_name)
                      for attr_name, _field in base._fields.iteritems()])
@@ -343,7 +353,6 @@ class DocumentMetaclass(type):
             # Include all relationships present in superclasses
             if hasattr(base, '_relationships'):
                 doc_relationships.update(base._relationships)
-
 
         meta = attrs.get('_meta', attrs.get('meta', {}))
 
@@ -375,9 +384,10 @@ class DocumentMetaclass(type):
                         # a sanity check, can't have two fields with same db_field
                         # unless they also have the same name
                         assert field_name not in field_to_name_map or \
-                                field_to_name_map[field_name] == attr_name, \
-                                "Field %s with db_field %s already exists in %s " \
-                                "or its superclass!" % (attr_name, field_name, name)
+                            field_to_name_map[field_name] == attr_name, \
+                            "Field %s with db_field %s already exists in %s " \
+                            "or its superclass!" % (
+                                attr_name, field_name, name)
                         field_to_name_map[field_name] = attr_name
                     doc_fields[attr_name] = attr_value
 
@@ -402,7 +412,8 @@ class DocumentMetaclass(type):
                     if base in _embedded_doc_registry:
                         _embedded_doc_registry[base].update(new_class._fields)
                     else:
-                        _embedded_doc_registry[base] = copy.copy(new_class._fields)
+                        _embedded_doc_registry[base] = copy.copy(
+                            new_class._fields)
 
         module = attrs.get('__module__')
 
@@ -456,8 +467,8 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
 
                 # Propagate index options.
                 for key in ('index_background', 'index_drop_dups', 'index_opts'):
-                   if key in base._meta:
-                      base_meta[key] = base._meta[key]
+                    if key in base._meta:
+                        base_meta[key] = base._meta[key]
 
                 id_field = id_field or base._meta.get('id_field')
                 base_indexes += base._meta.get('indexes', [])
@@ -466,8 +477,8 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
             'collection': collection,
             'max_documents': None,
             'max_size': None,
-            'ordering': [], # default ordering applied at runtime
-            'indexes': [], # indexes to be ensured at runtime
+            'ordering': [],  # default ordering applied at runtime
+            'indexes': [],  # indexes to be ensured at runtime
             'id_field': id_field,
             'index_background': True,
             'index_drop_dups': False,
@@ -502,6 +513,17 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
                 new_class.meta['shard_key'] = False
                 new_class._meta['db_name'] = 'sweeper-unsharded'
 
+        for field_name, field in new_class._fields.items():
+            if field.primary_key:
+                current_pk = new_class._meta['id_field']
+                if current_pk and current_pk != field_name:
+                    raise ValueError('Cannot override primary key field')
+
+                if not current_pk:
+                    new_class._meta['id_field'] = field_name
+                    # Make 'Document.id' an alias to the real primary key field
+                    new_class.id = field
+
         if not new_class._meta['id_field']:
             new_class._meta['id_field'] = 'id'
             id_field = ObjectIdField(db_field='_id')
@@ -513,10 +535,10 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
 
         if meta['hash_field']:
             assert 'shard_hash' not in new_class._fields, \
-                    "You already have a shard hash"
+                "You already have a shard hash"
 
             assert meta['hash_field'] in new_class._fields, \
-                    "The field you want to hash doesn't exist"
+                "The field you want to hash doesn't exist"
 
             from fields import IntField
 
@@ -638,7 +660,6 @@ class BaseDocument(object):
             elif field.required:
                 raise ValidationError('Field "%s" is required' % field.name)
 
-
     @classmethod
     def _get_subclasses(cls):
         """Return a dictionary of all subclasses (found recursively).
@@ -658,8 +679,10 @@ class BaseDocument(object):
     def pk():
         """Primary key alias
         """
+
         def fget(self):
             return getattr(self, self._meta['id_field'])
+
         def fset(self, value):
             return setattr(self, self._meta['id_field'], value)
         return property(fget, fset)
@@ -722,7 +745,7 @@ class BaseDocument(object):
                 if field.db_field in self._lazy_data:
                     data[field.db_field] = self._lazy_data[field.db_field]
                 elif field_name in self._raw_data and \
-                   isinstance(self._raw_data[field_name], (bson.dbref.DBRef)):
+                        isinstance(self._raw_data[field_name], (bson.dbref.DBRef)):
                     data[field.db_field] = self._raw_data[field_name]
                 else:
                     value = getattr(self, field_name, None)
@@ -733,7 +756,7 @@ class BaseDocument(object):
                     self._meta.get('allow_inheritance', True) is False):
                 data['_cls'] = self._class_name
                 data['_types'] = self._superclasses.keys() + [self._class_name]
-            if '_id' in data and not data['_id']:
+            if '_id' in data and data['_id'] is None:
                 del data['_id']
         finally:
             self._allow_unloaded = False
@@ -761,7 +784,6 @@ class BaseDocument(object):
                 return None
             cls = subclasses[class_name]
 
-
         return cls(from_son=True, **data)
 
     def __eq__(self, other):
@@ -777,9 +799,10 @@ class BaseDocument(object):
         """ For list, dic key  """
         if self.pk is None:
             # For new object
-            return super(BaseDocument,self).__hash__()
+            return super(BaseDocument, self).__hash__()
         else:
             return hash(self.pk)
+
 
 if sys.version_info < (2, 5):
     # Prior to Python 2.5, Exception was an old-style class
@@ -788,6 +811,7 @@ if sys.version_info < (2, 5):
 else:
     def subclass_exception(name, parents, module):
         return type(name, parents, {'__module__': module})
+
 
 class MongoComment(object):
     _ip = None
@@ -837,7 +861,7 @@ class MongoComment(object):
         try:
             if cls._ip == None:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.connect(('8.8.8.8',80))
+                sock.connect(('8.8.8.8', 80))
                 cls._ip = sock.getsockname()[0]
                 sock.close()
 
