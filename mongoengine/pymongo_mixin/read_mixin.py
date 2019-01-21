@@ -200,13 +200,20 @@ class ReadMixin(BaseMixin):
 
     @classmethod
     def aggregate(cls, pipeline=None, **kwargs):
-        result = cls._pymongo().aggregate(
+        result_iter = cls._pymongo().aggregate(
             pipeline,
-            read_preference=pymongo.read_preferences.ReadPreference.SECONDARY)
-        if result:
-            return result
+            read_preference=pymongo.read_preferences.ReadPreference.SECONDARY,
+            cursor={})
+        if result_iter:
+            return {
+                'result': [e for e in result_iter],
+                'ok': 1.0
+            }
         else:
-            return {'result': []}
+            return {
+                'result': [],
+                'ok': 1.0
+            }
 
     @classmethod
     def distinct(cls, filter, key, fields=None, skip=0, limit=0, sort=None,
