@@ -17,7 +17,7 @@ _default_db = 'sweeper'
 _slave_ok_settings = {
     False: SlaveOkSettings(ReadPreference.PRIMARY, [{}]),
     True: SlaveOkSettings(ReadPreference.PRIMARY, [{}]),
-    'offline': SlaveOkSettings(ReadPreference.SECONDARY_ONLY, [{}])
+    'offline': SlaveOkSettings(ReadPreference.SECONDARY, [{}])
 }
 
 _proxy_clients = {}
@@ -145,7 +145,8 @@ def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
         'socketTimeoutMS': socketTimeoutMS,
         'connectTimeoutMS': connectTimeoutMS,
         'waitQueueTimeoutMS': waitQueueTimeoutMS,
-        'w': w
+        'w': w,
+        'connect': False
     }
     for k in mongo_client_kwargs.keys():
         if mongo_client_kwargs[k] is None:
@@ -162,7 +163,7 @@ def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
             #     async_conn = None
             async_conn = None
             sync_conn = MongoClient(**mongo_client_kwargs)
-
+            sync_conn.admin.command('ismaster')
             _connections[conn_name] = MongoConnections(sync_conn, async_conn)
         except Exception as e:
             raise ConnectionError(

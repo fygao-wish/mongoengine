@@ -6,7 +6,9 @@ from mongoengine.connection import connect
 
 class WriteTests(unittest.TestCase):
     def setUp(self):
-        connect(db_names=['test'])
+        connect(
+            db_names=['test'],
+        )
 
     def _clear(self):
         TestDoc.remove({'test_pk': {'$gt': -1}})
@@ -106,6 +108,7 @@ class WriteTests(unittest.TestCase):
         self.assertEquals(count4, 10)
         self.assertEquals(count5, 10)
         self.assertEquals(count6, 50)
+
 
 if __name__ == '__main__':
     suite = unittest.TestLoader().loadTestsFromTestCase(WriteTests)

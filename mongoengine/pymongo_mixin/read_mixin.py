@@ -311,10 +311,10 @@ class ReadMixin(BaseMixin):
             if sort is None:
                 sort = {}
             else:
-                new_sort = {}
+                new_sort = []
                 for f, dir in sort.iteritems():
                     f, _ = cls._transform_key(f, cls)
-                    new_sort[f] = dir
+                    new_sort.append((f,dir))
 
                 sort = new_sort
 
