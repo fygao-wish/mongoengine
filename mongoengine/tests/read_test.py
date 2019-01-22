@@ -199,6 +199,13 @@ class ReadTests(unittest.TestCase):
             t.join()
         print '%d read threads end successfully' % total
 
+    def test_read_preference(self):
+        self._clear()
+        self._feed_data(100)
+        TestDoc.find({}, slave_ok='offline')
+        TestDoc.find({}, slave_ok=True)
+        TestDoc.find({}, slave_ok=False)
+
 
 if __name__ == '__main__':
     suite = unittest.TestLoader().loadTestsFromTestCase(ReadTests)

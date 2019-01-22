@@ -79,11 +79,13 @@ class ReadMixin(BaseMixin):
                 set_comment = False
 
                 with log_slow_event('find', cls._meta['collection'], filter):
-                    cur = cls._pymongo(allow_async).find(filter, projection,
-                                                         skip=skip, limit=limit, sort=sort,
-                                                         read_preference=slave_ok.read_pref,
-                                                         tag_sets=slave_ok.tags)
-
+                    pymongo_collection = cls._pymongo(allow_async).with_options(
+                        read_preference=slave_ok.read_pref,
+                    )
+                    cur = pymongo_collection.find(filter, projection,
+                                                  skip=skip, limit=limit, sort=sort,
+                                                  tag_sets=slave_ok.tags)
+                    
                     # max_time_ms <= 0 means its disabled, None means
                     # use default value, otherwise use the value specified
                     if max_time_ms is None:

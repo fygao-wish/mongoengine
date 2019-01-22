@@ -15,8 +15,9 @@ _dbs = {}
 _db_to_conn = {}
 _default_db = 'sweeper'
 _slave_ok_settings = {
-    False: SlaveOkSettings(ReadPreference.PRIMARY_PREFERRED, [{}]),
-    True: SlaveOkSettings(ReadPreference.SECONDARY_PREFERRED, [{}])
+    False: SlaveOkSettings(ReadPreference.PRIMARY, [{}]),
+    True: SlaveOkSettings(ReadPreference.PRIMARY, [{}]),
+    'offline': SlaveOkSettings(ReadPreference.SECONDARY_ONLY, [{}])
 }
 
 _proxy_clients = {}
@@ -153,7 +154,7 @@ def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
     # Connect to the database if not already connected
     if conn_name not in _connections:
         try:
-            #never use async
+            # never use async
             # from pymongo_greenlet import GreenletClient
             # if allow_async:
             #     async_conn = GreenletClient.sync_connect(**mongo_client_kwargs)
