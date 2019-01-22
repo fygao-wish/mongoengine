@@ -83,8 +83,8 @@ class ReadMixin(BaseMixin):
                         read_preference=slave_ok.read_pref,
                     )
                     cur = pymongo_collection.find(filter, projection,
-                                                  skip=skip, limit=limit, sort=sort,
-                                                  tag_sets=slave_ok.tags)
+                                                  skip=skip, limit=limit, 
+                                                  sort=sort)
                     
                     # max_time_ms <= 0 means its disabled, None means
                     # use default value, otherwise use the value specified

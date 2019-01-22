@@ -22,6 +22,7 @@ from ..connection import _get_db, _get_slave_ok, _get_proxy_client,\
 
 OPS_EMAIL = 'ops@wish.com'
 
+
 class WriteMixin(BulkMixin, BaseMixin):
     @classmethod
     def drop_collection(cls):
@@ -104,15 +105,11 @@ class WriteMixin(BulkMixin, BaseMixin):
         finally:
             cls.cleanup_trace(set_comment)
 
-    def save(self, safe=True, force_insert=None, validate=True):
+    def save(self, force_insert=None, validate=True, **kwargs):
         """Save the :class:`~mongoengine.Document` to the database. If the
         document already exists, it will be updated, otherwise it will be
         created.
 
-        If ``safe=True`` and the operation is unsuccessful, an
-        :class:`~mongoengine.OperationError` will be raised.
-
-        :param safe: check if the operation succeeded before returning
         :param force_insert: only try to create a new document, don't allow
             updates of existing documents
         :param validate: validates the document; set to ``False`` to skip.
@@ -150,11 +147,10 @@ class WriteMixin(BulkMixin, BaseMixin):
         id_field = self._meta['id_field']
         self[id_field] = self._fields[id_field].to_python(object_id)
 
-    def delete(self, safe=True):
+    def delete(self, **kwargs):
         """Delete the :class:`~mongoengine.Document` from the database. This
         will only take effect if the document has been previously saved.
 
-        :param safe: check if the operation succeeded before returning
         """
         id_field = self._meta['id_field']
         object_id = self._fields[id_field].to_mongo(self[id_field])
