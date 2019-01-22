@@ -1,12 +1,13 @@
 import unittest
-
+import subprocess
+from pymongo.errors import ConnectionFailure
 from mongoengine.tests.model.testdoc import TestDoc
-from mongoengine.connection import connect
+from mongoengine.connection import connect, clear_all
 
 
 class ReadTests(unittest.TestCase):
     def setUp(self):
-        connect(db_names=['test'])
+        connect(db_names=['test'], conn_name='test')
 
     def _clear(self):
         TestDoc.remove({'test_pk': {'$gt': -1}})
@@ -54,6 +55,7 @@ class ReadTests(unittest.TestCase):
         docs_iter = TestDoc.find_iter({}, batch_size=10, max_time_ms=100)
         for doc in docs_iter:
             self.assertEquals(doc.test_pk, doc.test_int)
+        TestDoc.ALLOW_TIMEOUT_RETRY = True
 
     def test_distinct(self):
         limit = 100
@@ -148,6 +150,54 @@ class ReadTests(unittest.TestCase):
         )
         self.assertEquals(doc.test_pk, 101)
         self.assertEquals(TestDoc.count({}), 100)
+
+    def test_aggregate(self):
+        self._clear()
+        self._feed_data(100)
+        docs = TestDoc.aggregate([])['result']
+        self.assertEquals(len(docs), 100)
+        self.assertTrue(type(docs[0]) is dict)
+
+    def test_mongo_connect_and_pool(self):
+        clear_all()
+        TestDoc._pymongo_collection = {}
+        import threading
+        pool_size = 100
+        client = connect(
+            conn_name='test_connect',
+            db_names=['test'],
+            max_pool_size=pool_size,
+            waitQueueTimeoutMS=1000,
+            allow_async=True,
+        ).sync
+        self.assertEquals(client.write_concern, {'w': 1})
+        self.assertEquals(client.max_pool_size, pool_size)
+
+        self._clear()
+        self._feed_data(50000)
+        global total
+        total = 0
+
+        def thread_read():
+            global total
+            cur = threading.current_thread()
+            try:
+                it = TestDoc.find_iter({}, limit=1000)
+                count = 0
+                for x in it:
+                    count += 1
+                    pass
+                total += 1
+            except ConnectionFailure:
+                return
+        t_list = []
+        for i in xrange(1000):
+            t = threading.Thread(target=thread_read, name="%d" % i)
+            t.start()
+            t_list.append(t)
+        for t in t_list:
+            t.join()
+        print '%d read threads end successfully' % total
 
 
 if __name__ == '__main__':

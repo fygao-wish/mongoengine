@@ -1,12 +1,11 @@
 from pymongo.mongo_client import MongoClient
-from pymongo_greenlet import GreenletClient
 from pymongo.read_preferences import ReadPreference
 import collections
 
 __all__ = ['ConnectionError', 'connect', 'set_default_db', 'SlaveOkSettings']
 
 MongoConnections = collections.namedtuple('MongoConnections',
-                                           ['sync', 'async'])
+                                          ['sync', 'async'])
 
 SlaveOkSettings = collections.namedtuple('SlaveOkSettings',
                                          ['read_pref', 'tags'])
@@ -25,6 +24,7 @@ _proxy_clients = {}
 _proxy_dbs_to_conn = {}
 _proxy_connections = {}
 
+
 class OpClass(object):
     READ = 0
     WRITE = 1
@@ -33,9 +33,11 @@ class OpClass(object):
     def all(cls):
         return set([cls.READ, cls.WRITE])
 
+
 # Default to off if haven't been inited
-_proxy_decider_keys = {OpClass.READ  : lambda : False,
-                       OpClass.WRITE : lambda : False}
+_proxy_decider_keys = {OpClass.READ: lambda: False,
+                       OpClass.WRITE: lambda: False}
+
 
 def inject_decider(opclass, func):
     if opclass not in OpClass.all():
@@ -47,12 +49,15 @@ def inject_decider(opclass, func):
     global _proxy_decider_keys
     _proxy_decider_keys[opclass] = func
 
+
 class ConnectionError(Exception):
     pass
+
 
 def _get_proxy_decider(opclass):
     global _proxy_decider_keys
     return _proxy_decider_keys[opclass]()
+
 
 def _get_proxy_client(db_name='test'):
     global _proxy_clients, _proxy_dbs_to_conn, _proxy_connections
@@ -104,8 +109,10 @@ def _get_db(db_name='test', reconnect=False, allow_async=True):
 
     return async if allow_async and async else sync
 
+
 def _get_slave_ok(slave_ok):
     return _slave_ok_settings[slave_ok]
+
 
 def connect_proxy(client_func, conn_name=None, db_names=None):
     global _proxy_dbs_to_conn, _proxy_connections
@@ -116,23 +123,49 @@ def connect_proxy(client_func, conn_name=None, db_names=None):
             _proxy_dbs_to_conn[db] = conn_name
     return _proxy_connections[conn_name]
 
+
+def clear_all():
+    global _connections, _dbs, _db_to_conn
+    _connections = {}
+    _dbs = {}
+    _db_to_conn = {}
+
+
 def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
-            slave_ok_settings=None, **kwargs):
+            slave_ok_settings=None, port=27017, max_pool_size=None,
+            socketTimeoutMS=None, connectTimeoutMS=None, waitQueueTimeoutMS=None,
+            w=1, **kwargs):
     global _connections, _db_to_conn, _slave_ok_settings
+
+    mongo_client_kwargs = {
+        'host': host,
+        'port': port,
+        'max_pool_size': max_pool_size,
+        'socketTimeoutMS': socketTimeoutMS,
+        'connectTimeoutMS': connectTimeoutMS,
+        'waitQueueTimeoutMS': waitQueueTimeoutMS,
+        'w': w
+    }
+    for k in mongo_client_kwargs.keys():
+        if mongo_client_kwargs[k] is None:
+            del mongo_client_kwargs[k]
 
     # Connect to the database if not already connected
     if conn_name not in _connections:
         try:
-            if allow_async:
-                async_conn = GreenletClient.sync_connect(host, **kwargs)
-            else:
-                async_conn = None
-
-            sync_conn = MongoClient(host, **kwargs)
+            #never use async
+            # from pymongo_greenlet import GreenletClient
+            # if allow_async:
+            #     async_conn = GreenletClient.sync_connect(**mongo_client_kwargs)
+            # else:
+            #     async_conn = None
+            async_conn = None
+            sync_conn = MongoClient(**mongo_client_kwargs)
 
             _connections[conn_name] = MongoConnections(sync_conn, async_conn)
         except Exception as e:
-            raise ConnectionError('Cannot connect to the database: %s' % str(e))
+            raise ConnectionError(
+                'Cannot connect to the database: %s' % str(e))
 
         if db_names:
             for db in db_names:
@@ -142,6 +175,7 @@ def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
             _slave_ok_settings = slave_ok_settings
 
     return _connections[conn_name]
+
 
 def set_default_db(db):
     global _default_db
