@@ -141,7 +141,7 @@ def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
     mongo_client_kwargs = {
         'host': host,
         'port': port,
-        'max_pool_size': max_pool_size,
+        'maxPoolSize': max_pool_size,
         'socketTimeoutMS': socketTimeoutMS,
         'connectTimeoutMS': connectTimeoutMS,
         'waitQueueTimeoutMS': waitQueueTimeoutMS,
