@@ -357,7 +357,7 @@ class DocumentMetaclass(type):
         meta = attrs.get('_meta', attrs.get('meta', {}))
 
         if 'allow_inheritance' not in meta:
-            meta['allow_inheritance'] = True
+            meta['allow_inheritance'] = False
 
         # Only simple classes - direct subclasses of Document - may set
         # allow_inheritance to False
@@ -753,7 +753,7 @@ class BaseDocument(object):
                         data[field.db_field] = field.to_mongo(value)
             # Only add _cls and _types if allow_inheritance is not False
             if not (hasattr(self, '_meta') and
-                    self._meta.get('allow_inheritance', True) is False):
+                    self._meta.get('allow_inheritance', False) is False):
                 data['_cls'] = self._class_name
                 data['_types'] = self._superclasses.keys() + [self._class_name]
             if '_id' in data and data['_id'] is None:

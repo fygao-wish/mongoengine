@@ -3,11 +3,15 @@ import greenlet
 import warnings
 import time
 import pymongo
+from pymongo.write_concern import WriteConcern
+from pymongo.read_preferences import ReadPreference
 from bson import SON, DBRef, ObjectId
 from ..base import FieldStatus, BaseDocument, MongoComment, get_document, \
     ValidationError, get_embedded_doc_fields
 from ..greenletutil import CLGreenlet, GreenletUtil
 from ..timer import log_slow_event
+
+RETRY_PYMONGO_ERRORS = (pymongo.errors.PyMongoError,)
 
 
 class CLSContext(object):
@@ -79,7 +83,7 @@ class BaseMixin(object):
         return key
 
     @classmethod
-    def _pymongo(cls, use_async=True):
+    def _pymongo(cls, use_async=True, read_preference=None, write_concern=None):
         from ..connection import _get_db
         # we can't do async queries if we're on the root greenlet since we have
         # nothing to yield back to
@@ -93,7 +97,9 @@ class BaseMixin(object):
                 _get_db(cls._meta['db_name'],
                         allow_async=use_async)[cls._meta['collection']]
 
-        return cls._pymongo_collection[use_async]
+        return cls._pymongo_collection[use_async].with_options(
+            read_preference=read_preference,
+            write_concern=write_concern)
 
     @classmethod
     def _hash(cls, value):

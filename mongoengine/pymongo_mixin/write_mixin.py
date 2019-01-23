@@ -8,6 +8,7 @@ import sys
 import traceback
 import logging
 import warnings
+from pymongo.write_concern import WriteConcern
 from bson import SON, ObjectId, DBRef
 from .base import BaseMixin
 from .bulk_mixin import BulkMixin
@@ -73,13 +74,85 @@ class WriteMixin(BulkMixin, BaseMixin):
 
         try:
             with log_slow_event("update", cls._meta['collection'], filter):
-                result = cls._pymongo().update(filter,
-                                               document,
-                                               upsert=upsert,
-                                               multi=multi,
-                                               w=cls._meta['write_concern'],
-                                               )
-            return result
+                pymongo_collection = cls._pymongo(
+                    write_concern=WriteConcern(w=cls._meta['write_concern']))
+                if multi:
+                    result = pymongo_collection.update_many(
+                        filter, document, upsert=upsert)
+                else:
+                    result = pymongo_collection.update_one(
+                        filter, document, upsert=upsert)
+            result_dict = {
+                'matched_count': result.matched_count,
+                'modified_count': result.modified_count,
+                'upserted_id': result.upserted_id,
+            }
+            result_dict.update(result.raw_result)
+            return result_dict
+        finally:
+            cls.cleanup_trace(set_comment)
+
+    @classmethod
+    def find_and_modify(cls, filter, update=None, sort=None, remove=False,
+                        new=False, fields=None, upsert=False,
+                        excluded_fields=None, skip_transform=False, **kwargs):
+        if skip_transform:
+            if update is None and not remove:
+                raise ValueError("Cannot have empty update and no remove flag")
+            if fields or excluded_fields:
+                raise ValueError(
+                    "Cannot specify fields or excluded fields when using skip_transform=True")
+            transformed_fields = None
+        else:
+            filter = cls._transform_value(filter, cls)
+            if update is not None:
+                update = cls._transform_value(update, cls, op='$set')
+            elif not remove:
+                raise ValueError("Cannot have empty update and no remove flag")
+
+            # handle queries with inheritance
+            filter = cls._update_filter(filter, **kwargs)
+            if sort is None:
+                sort = {}
+            else:
+                new_sort = []
+                for f, dir in sort.iteritems():
+                    f, _ = cls._transform_key(f, cls)
+                    new_sort.append((f, dir))
+
+                sort = new_sort
+
+            transformed_fields = cls._transform_fields(fields, excluded_fields)
+
+        is_scatter_gather = cls.is_scatter_gather(filter)
+
+        set_comment = cls.attach_trace(
+            MongoComment.get_query_comment(), is_scatter_gather)
+
+        from pymongo.collection import ReturnDocument
+        try:
+            with log_slow_event("find_and_modify", cls._meta['collection'], filter):
+                pymongo_collection = cls._pymongo(
+                    write_concern=WriteConcern(w=cls._meta['write_concern']))
+                if remove:
+                    result = pymongo_collection.find_one_and_delete(
+                        filter,
+                        sort=sort,
+                        projection=transformed_fields
+                    )
+                else:
+                    result = pymongo_collection.find_one_and_update(
+                        filter, update,
+                        sort=sort,
+                        projection=transformed_fields,
+                        upsert=upsert,
+                        return_document=ReturnDocument.AFTER if new else
+                        ReturnDocument.BEFORE
+                    )
+            if result:
+                return cls._from_augmented_son(result, fields, excluded_fields)
+            else:
+                return None
         finally:
             cls.cleanup_trace(set_comment)
 
@@ -96,12 +169,17 @@ class WriteMixin(BulkMixin, BaseMixin):
         filter = cls._update_filter(filter, **kwargs)
         try:
             with log_slow_event("remove", cls._meta['collection'], filter):
-                result = cls._pymongo().remove(
-                    filter,
-                    w=cls._meta['write_concern'],
-                    multi=multi
-                )
-            return result
+                pymongo_collection = cls._pymongo(
+                    write_concern=WriteConcern(w=cls._meta['write_concern']))
+                if multi:
+                    result = pymongo_collection.delete_many(filter)
+                else:
+                    result = pymongo_collection.delete_one(filter)
+            result_dict = {
+                'deleted_count': result.deleted_count,
+            }
+            result_dict.update(result.raw_result)
+            return result_dict
         finally:
             cls.cleanup_trace(set_comment)
 
@@ -114,8 +192,6 @@ class WriteMixin(BulkMixin, BaseMixin):
             updates of existing documents
         :param validate: validates the document; set to ``False`` to skip.
         """
-        if self.__class__._bulk_op is not None:
-            warnings.warn('Non-bulk update inside bulk operation')
         if self._meta['hash_field']:
             # if we're hashing the ID and it hasn't been set yet, autogenerate it
             from ..fields import ObjectIdField
@@ -133,19 +209,20 @@ class WriteMixin(BulkMixin, BaseMixin):
         doc = self.to_mongo()
         try:
             w = self._meta.get('write_concern', 1)
+            collection = self._pymongo(write_concern=WriteConcern(w=w))
             if force_insert or "_id" not in doc:
-                collection = self._pymongo()
-                object_id = collection.insert(doc, w=w)
+                pk_value = collection.insert_one(doc).inserted_id
             else:
-                collection = self._pymongo()
-                object_id = collection.save(doc, w=w)
+                collection.replace_one({'_id': doc['_id']}, doc)
+                pk_value = doc['_id']
         except (pymongo.errors.OperationFailure), err:
             message = 'Could not save document (%s)'
             if u'duplicate key' in unicode(err):
                 message = u'Tried to save duplicate unique keys (%s)'
             raise OperationError(message % unicode(err))
         id_field = self._meta['id_field']
-        self[id_field] = self._fields[id_field].to_python(object_id)
+        self[id_field] = self._fields[id_field].to_python(pk_value)
+        return pk_value
 
     def delete(self, **kwargs):
         """Delete the :class:`~mongoengine.Document` from the database. This
@@ -201,6 +278,10 @@ class WriteMixin(BulkMixin, BaseMixin):
                         elif operator == '$push':
                             if field_loaded:
                                 ops[field] = self[field][:] + [new_val]
+                        elif operator == '$pull':
+                            if field_loaded and new_val in self[field][:]:
+                                ops[field] = self[field][:]
+                                ops[field].remove(new_val)
                         elif operator == '$pushAll':
                             if field_loaded:
                                 ops[field] = self[field][:] + new_val
@@ -250,19 +331,22 @@ class WriteMixin(BulkMixin, BaseMixin):
         set_comment = self.attach_trace(comment, is_scatter_gather)
         try:
             with log_slow_event("update_one", self._meta['collection'], filter):
-                result = self._pymongo().update(query_filter,
-                                                document,
-                                                upsert=upsert,
-                                                multi=False,
-                                                w=self._meta['write_concern'],
-                                                )
-
+                pymongo_collection = self._pymongo(
+                    write_concern=WriteConcern(w=self._meta['write_concern']))
+                result = pymongo_collection.update_one(query_filter,
+                                                       document,
+                                                       upsert=upsert)
+            result_dict = {
+                'matched_count': result.matched_count,
+                'modified_count': result.modified_count,
+            }
+            result_dict.update(result.raw_result)
             # do in-memory updates on the object if the query succeeded
-            if result['n'] == 1:
+            if result_dict['n'] == 1:
                 for field, new_val in ops.iteritems():
                     self[field] = new_val
 
-            return result
+            return result_dict
         finally:
             self.cleanup_trace(set_comment)
 

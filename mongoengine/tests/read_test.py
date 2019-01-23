@@ -90,68 +90,6 @@ class ReadTests(unittest.TestCase):
         doc.reload()
         self.assertEquals(doc.test_int, 1000)
 
-    def test_find_and_modify(self):
-        self._clear()
-        self._feed_data(100)
-        doc = TestDoc.find_and_modify(
-            {
-                'test_pk': {'$lt': 10}
-            },
-            {
-                '$set': {
-                    'test_int': 1000
-                }
-            },
-            sort={
-                'test_pk': -1
-            },
-            fields=['test_int']
-        )
-        self.assertEquals(doc.test_int, 9)
-        self.assertEquals(TestDoc.count({'test_int': 1000}), 1)
-        self.assertEquals(doc.test_str, None)
-        TestDoc.find_and_modify(
-            {
-                'test_pk': 101
-            },
-            {
-                '$set': {
-                    'test_int': 101
-                }
-            },
-            sort={
-                'test_pk': -1
-            },
-            fields=['test_int'],
-            upsert=True,
-        )
-        self.assertEquals(TestDoc.count({'test_pk': 101}), 1)
-        doc = TestDoc.find_and_modify(
-            {
-                'test_pk': {'$lt': 10}
-            },
-            {
-                '$set': {
-                    'test_int': 1000 * 2
-                }
-            },
-            sort={
-                'test_pk': -1
-            },
-            new=True,
-        )
-        self.assertEquals(doc.test_int, 1000 * 2)
-        doc = TestDoc.find_and_modify(
-            {},
-            {},
-            sort={
-                'test_pk': -1
-            },
-            remove=True,
-        )
-        self.assertEquals(doc.test_pk, 101)
-        self.assertEquals(TestDoc.count({}), 100)
-
     def test_aggregate(self):
         self._clear()
         self._feed_data(100)
@@ -206,6 +144,14 @@ class ReadTests(unittest.TestCase):
         TestDoc.find({}, slave_ok='offline')
         TestDoc.find({}, slave_ok=True)
         TestDoc.find({}, slave_ok=False)
+
+    def test_count(self):
+        self._clear()
+        self._feed_data(100)
+        self.assertEquals(TestDoc.count(), 100)
+        self.assertEquals(TestDoc.count({'test_pk': {'$lt': 10}}), 10)
+        self.assertEquals(TestDoc.count({'test_pk': {'$lt': 10}}, skip=5), 5)
+        self.assertEquals(TestDoc.count({'test_pk': {'$lt': 10}}, limit=3), 3)
 
 
 if __name__ == '__main__':

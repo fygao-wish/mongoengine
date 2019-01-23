@@ -3,6 +3,7 @@ import contextlib
 import pymongo
 import warnings
 from bson import ObjectId
+from pymongo.write_concern import WriteConcern
 
 from .base import BaseMixin
 from ..queryset import OperationError
@@ -60,16 +61,18 @@ class BulkMixin(BaseMixin):
         try:
             cls.init_bulk_attr(cls.BULK_INDEX, WrappedCounter())
             cls.init_bulk_attr(cls.BULK_SAVE_OBJECTS, dict())
+            w = cls._meta.get('write_concern', 1)
+            pymongo_collection = cls._pymongo(write_concern=WriteConcern(w=w))
             if unordered:
                 cls.init_bulk_attr(
-                    cls.BULK_OP, cls._pymongo().initialize_unordered_bulk_op())
+                    cls.BULK_OP, pymongo_collection.initialize_unordered_bulk_op())
             else:
                 cls.init_bulk_attr(
-                    cls.BULK_OP, cls._pymongo().initialize_ordered_bulk_op())
+                    cls.BULK_OP, pymongo_collection.initialize_ordered_bulk_op())
             yield
             try:
-                w = cls._meta.get('write_concern', 1)
-                cls.get_bulk_attr(cls.BULK_OP).execute(write_concern={'w': w})
+
+                cls.get_bulk_attr(cls.BULK_OP).execute()
 
                 for object_id, props in cls.get_bulk_attr(cls.BULK_SAVE_OBJECTS).iteritems():
                     instance = props['obj']
@@ -104,7 +107,7 @@ class BulkMixin(BaseMixin):
                     bo_error.index = w_error['index']
                 raise bo_error
             except pymongo.errors.InvalidOperation as e:
-                if 'No operations' in e.message:
+                if 'No operations' in str(e):
                     if allow_empty is None:
                         warnings.warn('Empty bulk operation; use allow_empty')
                     elif allow_empty is False:

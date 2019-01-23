@@ -23,8 +23,33 @@ class ReadMixin(BaseMixin):
     INCLUDE_SHARD_KEY = []
 
     @classmethod
+    def _count(cls, slave_ok=False, filter=None, hint=None, limit=0,
+               skip=0, max_time_ms=None):
+        slave_ok = _get_slave_ok(slave_ok)
+        if filter:
+            filter = cls._transform_value(filter, cls)
+        if hint:
+            hint = cls._transform_hint(hint)
+        with log_slow_event('find', cls._meta['collection'], filter):
+            pymongo_collection = cls._pymongo(
+                read_preference=slave_ok.read_pref)
+            if hint:
+                return pymongo_collection.count(
+                    filter=filter,
+                    hint=hint,
+                    skip=skip,
+                    limit=limit,
+                )
+            else:
+                return pymongo_collection.count(
+                    filter=filter,
+                    skip=skip,
+                    limit=limit,
+                )
+
+    @classmethod
     def _find_raw(cls, filter, fields=None, skip=0, limit=0, sort=None,
-                  slave_ok=True, find_one=False, allow_async=True, hint=None,
+                  slave_ok=False, find_one=False, allow_async=True, hint=None,
                   batch_size=10000, excluded_fields=None, max_time_ms=None,
                   comment=None, from_mengine=True, **kwargs):
         is_scatter_gather = cls.is_scatter_gather(filter)
@@ -124,13 +149,13 @@ class ReadMixin(BaseMixin):
 
     @classmethod
     def explain(cls, filter, fields=None, skip=0, limit=0, sort=None,
-                slave_ok=True, excluded_fields=None, max_time_ms=None,
+                slave_ok=False, excluded_fields=None, max_time_ms=None,
                 timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
         raise Exception("Explain not supported")
 
     @classmethod
     def find(cls, filter, fields=None, skip=0, limit=0, sort=None,
-             slave_ok=True, excluded_fields=None, max_time_ms=None,
+             slave_ok=False, excluded_fields=None, max_time_ms=None,
              timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
         for i in xrange(cls.MAX_AUTO_RECONNECT_TRIES):
             cur, set_comment = cls._find_raw(filter, fields, skip, limit, sort,
@@ -220,7 +245,7 @@ class ReadMixin(BaseMixin):
 
     @classmethod
     def distinct(cls, filter, key, fields=None, skip=0, limit=0, sort=None,
-                 slave_ok=True, excluded_fields=None,
+                 slave_ok=False, excluded_fields=None,
                  max_time_ms=None, timeout_value=NO_TIMEOUT_DEFAULT,
                  **kwargs):
         cur, set_comment = cls._find_raw(filter, fields, skip, limit,
@@ -253,7 +278,7 @@ class ReadMixin(BaseMixin):
             cls.cleanup_trace(set_comment)
 
     @classmethod
-    def find_one(cls, filter, fields=None, skip=0, sort=None, slave_ok=True,
+    def find_one(cls, filter, fields=None, skip=0, sort=None, slave_ok=False,
                  excluded_fields=None, max_time_ms=None,
                  timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
 
@@ -290,88 +315,13 @@ class ReadMixin(BaseMixin):
             cls.cleanup_trace(set_comment)
 
     @classmethod
-    def find_and_modify(cls, filter, update=None, sort=None, remove=False,
-                        new=False, fields=None, upsert=False,
-                        excluded_fields=None, skip_transform=False, **kwargs):
-        if skip_transform:
-            if update is None and not remove:
-                raise ValueError("Cannot have empty update and no remove flag")
-            if fields or excluded_fields:
-                raise ValueError(
-                    "Cannot specify fields or excluded fields when using skip_transform=True")
-            transformed_fields = None
-        else:
-            filter = cls._transform_value(filter, cls)
-            if update is not None:
-                update = cls._transform_value(update, cls, op='$set')
-            elif not remove:
-                raise ValueError("Cannot have empty update and no remove flag")
-
-            # handle queries with inheritance
-            filter = cls._update_filter(filter, **kwargs)
-            if sort is None:
-                sort = {}
-            else:
-                new_sort = []
-                for f, dir in sort.iteritems():
-                    f, _ = cls._transform_key(f, cls)
-                    new_sort.append((f, dir))
-
-                sort = new_sort
-
-            transformed_fields = cls._transform_fields(fields, excluded_fields)
-
-        is_scatter_gather = cls.is_scatter_gather(filter)
-
-        set_comment = cls.attach_trace(
-            MongoComment.get_query_comment(), is_scatter_gather)
-
-        try:
-            with log_slow_event("find_and_modify", cls._meta['collection'], filter):
-                result = cls._pymongo().find_and_modify(
-                    filter, sort=sort, remove=remove, update=update, new=new,
-                    fields=transformed_fields, upsert=upsert, **kwargs
-                )
-            if result:
-                return cls._from_augmented_son(result, fields, excluded_fields)
-            else:
-                return None
-        finally:
-            cls.cleanup_trace(set_comment)
-
-    @classmethod
-    def count(cls, filter, slave_ok=True, max_time_ms=None,
-              timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
-        cur, set_comment = cls._find_raw(filter, slave_ok=slave_ok,
-                                         max_time_ms=max_time_ms, **kwargs)
-        try:
-            for i in xrange(cls.MAX_AUTO_RECONNECT_TRIES):
-                try:
-                    return cur.count()
-                except pymongo.errors.AutoReconnect:
-                    if i == (cls.MAX_AUTO_RECONNECT_TRIES - 1):
-                        raise
-                    else:
-                        _sleep(cls.AUTO_RECONNECT_SLEEP)
-                except pymongo.errors.ExecutionTimeout:
-                    execution_timeout_logger.info({
-                        '_comment': str(cur._Cursor__comment),
-                        '_max_time_ms': cur._Cursor__max_time_ms,
-                    })
-                    if cls.ALLOW_TIMEOUT_RETRY and (max_time_ms is None or
-                                                    max_time_ms < cls.MAX_TIME_MS):
-                        kwargs.pop('comment', None)
-                        return cls.count(
-                            filter, slave_ok=slave_ok,
-                            max_time_ms=cls.RETRY_MAX_TIME_MS,
-                            timeout_value=timeout_value,
-                            **kwargs
-                        )
-                    if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
-                        return timeout_value
-                    raise
-        finally:
-            cls.cleanup_trace(set_comment)
+    def count(cls, filter=None, slave_ok=True, max_time_ms=None,
+              timeout_value=NO_TIMEOUT_DEFAULT, skip=0, limit=0,
+              hint=None, **kwargs):
+        return cls._count(filter=filter, slave_ok=slave_ok,
+                          max_time_ms=max_time_ms,
+                          hint=hint,
+                          skip=skip, limit=limit)
 
     def reload(self, slave_ok=False):
         """Reloads all attributes from the database.
