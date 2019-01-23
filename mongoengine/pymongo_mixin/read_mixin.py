@@ -83,9 +83,9 @@ class ReadMixin(BaseMixin):
                         read_preference=slave_ok.read_pref,
                     )
                     cur = pymongo_collection.find(filter, projection,
-                                                  skip=skip, limit=limit, 
+                                                  skip=skip, limit=limit,
                                                   sort=sort)
-                    
+
                     # max_time_ms <= 0 means its disabled, None means
                     # use default value, otherwise use the value specified
                     if max_time_ms is None:
@@ -201,11 +201,12 @@ class ReadMixin(BaseMixin):
             yield doc
 
     @classmethod
-    def aggregate(cls, pipeline=None, **kwargs):
-        result_iter = cls._pymongo().aggregate(
-            pipeline,
-            read_preference=pymongo.read_preferences.ReadPreference.SECONDARY,
-            cursor={})
+    def aggregate(cls, pipeline=None, slave_ok='offline', **kwargs):
+        slave_ok = _get_slave_ok(slave_ok)
+        pymongo_collection = cls._pymongo().with_options(
+            read_preference=slave_ok.read_pref
+        )
+        result_iter = pymongo_collection.aggregate(pipeline, cursor={})
         if result_iter:
             return {
                 'result': [e for e in result_iter],
@@ -314,7 +315,7 @@ class ReadMixin(BaseMixin):
                 new_sort = []
                 for f, dir in sort.iteritems():
                     f, _ = cls._transform_key(f, cls)
-                    new_sort.append((f,dir))
+                    new_sort.append((f, dir))
 
                 sort = new_sort
 

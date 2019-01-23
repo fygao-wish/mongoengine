@@ -1,5 +1,6 @@
 import unittest
 import subprocess
+from pymongo.write_concern import WriteConcern
 from pymongo.errors import ConnectionFailure
 from mongoengine.tests.model.testdoc import TestDoc
 from mongoengine.connection import connect, clear_all
@@ -170,7 +171,7 @@ class ReadTests(unittest.TestCase):
             waitQueueTimeoutMS=1000,
             allow_async=True,
         ).sync
-        self.assertEquals(client.write_concern, {'w': 1})
+        self.assertEquals(client.write_concern, WriteConcern(w=1))
         self.assertEquals(client.max_pool_size, pool_size)
 
         self._clear()
