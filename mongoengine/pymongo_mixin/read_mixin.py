@@ -2,50 +2,46 @@ import logging
 import traceback
 import pymongo
 import time
-from .base import BaseMixin
+from retry import retry
+from pymongo.read_preferences import ReadPreference
+from .base import BaseMixin, RETRY_ERRORS,\
+    RETRY_LOGGER
 from ..connection import _get_slave_ok
 from ..timer import log_slow_event
 from ..base import MongoComment
 
-high_offset_logger = logging.getLogger('sweeper.prod.mongodb_high_offset')
-execution_timeout_logger = logging.getLogger(
-    'sweeper.prod.mongodb_execution_timeout')
-_sleep = time.sleep
-
 
 class ReadMixin(BaseMixin):
-    NO_TIMEOUT_DEFAULT = object()
-    MAX_AUTO_RECONNECT_TRIES = 6
-    AUTO_RECONNECT_SLEEP = 5
-    RETRY_MAX_TIME_MS = 5000
-    MAX_TIME_MS = 2500
-    ALLOW_TIMEOUT_RETRY = True
-    INCLUDE_SHARD_KEY = []
+    MAX_TIME_MS = 5000
+    FIND_WARNING_DOCS_LIMIT = 10000
 
     @classmethod
     def _count(cls, slave_ok=False, filter=None, hint=None, limit=0,
                skip=0, max_time_ms=None):
         slave_ok = _get_slave_ok(slave_ok)
+        pymongo_collection = cls._pymongo(read_preference=slave_ok.read_pref)
+        max_time_ms = max_time_ms or cls.MAX_TIME_MS
+        cls._check_read_max_time_ms(
+            'count', max_time_ms, pymongo_collection.read_preference)
         if filter:
             filter = cls._transform_value(filter, cls)
         if hint:
             hint = cls._transform_hint(hint)
         with log_slow_event('find', cls._meta['collection'], filter):
-            pymongo_collection = cls._pymongo(
-                read_preference=slave_ok.read_pref)
+            kwargs_dict = {
+                'filter': filter,
+                'skip': skip,
+                'limit': limit,
+            }
             if hint:
-                return pymongo_collection.count(
-                    filter=filter,
-                    hint=hint,
-                    skip=skip,
-                    limit=limit,
-                )
-            else:
-                return pymongo_collection.count(
-                    filter=filter,
-                    skip=skip,
-                    limit=limit,
-                )
+                kwargs_dict.update({
+                    'hint': hint
+                })
+            if max_time_ms > 0:
+                kwargs_dict.update({
+                    'maxTimeMS': max_time_ms
+                })
+            return pymongo_collection.count(**kwargs_dict)
 
     @classmethod
     def _find_raw(cls, filter, fields=None, skip=0, limit=0, sort=None,
@@ -53,18 +49,7 @@ class ReadMixin(BaseMixin):
                   batch_size=10000, excluded_fields=None, max_time_ms=None,
                   comment=None, from_mengine=True, **kwargs):
         is_scatter_gather = cls.is_scatter_gather(filter)
-        # HACK [adam May/2/16]: log high-offset queries with sorts to TD. these
-        #      queries tend to cause significant load on mongo
         set_comment = False
-
-        if sort and skip > 100000:
-            trace = "".join(traceback.format_stack())
-            high_offset_logger.info({
-                'limit': limit,
-                'skip': skip,
-                'trace': trace
-            })
-
         # transform query
         filter = cls._transform_value(filter, cls)
         filter = cls._update_filter(filter, **kwargs)
@@ -78,7 +63,6 @@ class ReadMixin(BaseMixin):
             for f, dir in sort:
                 f, _ = cls._transform_key(f, cls)
                 new_sort.append((f, dir))
-
             sort = new_sort
 
         # grab read preference & tags from slave_ok value
@@ -95,142 +79,96 @@ class ReadMixin(BaseMixin):
         if hint:
             hint = cls._transform_hint(hint)
 
-        # in case count passed in instead of limit
-        if 'count' in kwargs and limit == 0:
-            limit = kwargs['count']
+        with log_slow_event('find', cls._meta['collection'], filter):
+            pymongo_collection = cls._pymongo(
+                read_preference=slave_ok.read_pref)
+            cur = pymongo_collection.find(filter, projection,
+                                          skip=skip, limit=limit,
+                                          sort=sort)
 
-        for i in xrange(cls.MAX_AUTO_RECONNECT_TRIES):
-            try:
-                set_comment = False
+            max_time_ms = max_time_ms or cls.MAX_TIME_MS
+            cls._check_read_max_time_ms(
+                'find', max_time_ms, pymongo_collection.read_preference)
 
-                with log_slow_event('find', cls._meta['collection'], filter):
-                    pymongo_collection = cls._pymongo(allow_async).with_options(
-                        read_preference=slave_ok.read_pref,
-                    )
-                    cur = pymongo_collection.find(filter, projection,
-                                                  skip=skip, limit=limit,
-                                                  sort=sort)
+            if max_time_ms > 0:
+                cur.max_time_ms(max_time_ms)
 
-                    # max_time_ms <= 0 means its disabled, None means
-                    # use default value, otherwise use the value specified
-                    if max_time_ms is None:
-                        # if the default value is set to 0, then this feature is
-                        # disabled by default
-                        if cls.MAX_TIME_MS > 0:
-                            cur.max_time_ms(cls.MAX_TIME_MS)
-                    elif max_time_ms > 0:
-                        cur.max_time_ms(max_time_ms)
+            if hint:
+                cur.hint(hint)
 
-                    if hint:
-                        cur.hint(hint)
+            if not comment:
+                comment = MongoComment.get_query_comment()
 
-                    if not comment:
-                        comment = MongoComment.get_query_comment()
+            set_comment = cls.attach_trace(comment, is_scatter_gather)
 
-                    set_comment = cls.attach_trace(comment, is_scatter_gather)
+            cur.comment(comment)
 
-                    cur.comment(comment)
+            if find_one:
+                for result in cur.limit(-1):
+                    return result, set_comment
+                return None, set_comment
+            else:
+                cur.batch_size(batch_size)
 
-                    if find_one:
-                        for result in cur.limit(-1):
-                            return result, set_comment
-                        return None, set_comment
-                    else:
-                        cur.batch_size(batch_size)
-
-                    return cur, set_comment
-                break
-            # delay & retry once on AutoReconnect error
-            except pymongo.errors.AutoReconnect:
-                if i == (cls.MAX_AUTO_RECONNECT_TRIES - 1):
-                    raise
-                else:
-                    _sleep(cls.AUTO_RECONNECT_SLEEP)
+            return cur, set_comment
 
     @classmethod
     def explain(cls, filter, fields=None, skip=0, limit=0, sort=None,
-                slave_ok=False, excluded_fields=None, max_time_ms=None,
-                timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
+                slave_ok=False, excluded_fields=None, max_time_ms=None, **kwargs):
         raise Exception("Explain not supported")
 
+    
     @classmethod
+    @retry(exceptions=RETRY_ERRORS, tries=5, delay=5, logger=RETRY_LOGGER)
     def find(cls, filter, fields=None, skip=0, limit=0, sort=None,
              slave_ok=False, excluded_fields=None, max_time_ms=None,
-             timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
-        for i in xrange(cls.MAX_AUTO_RECONNECT_TRIES):
-            cur, set_comment = cls._find_raw(filter, fields, skip, limit, sort,
-                                             slave_ok=slave_ok,
-                                             excluded_fields=excluded_fields,
-                                             max_time_ms=max_time_ms, **kwargs)
-
-            try:
-                return [
-                    cls._from_augmented_son(d, fields, excluded_fields)
-                    for d in cls._iterate_cursor(cur)
-                ]
-            except pymongo.errors.ExecutionTimeout:
-                execution_timeout_logger.info({
-                    '_comment': str(cur._Cursor__comment),
-                    '_max_time_ms': cur._Cursor__max_time_ms,
-                })
-                if cls.ALLOW_TIMEOUT_RETRY and (max_time_ms is None or
-                                                max_time_ms < cls.MAX_TIME_MS):
-                    return cls.find(
-                        filter, fields=fields,
-                        skip=skip, limit=limit,
-                        sort=sort, slave_ok=slave_ok,
-                        excluded_fields=excluded_fields,
-                        max_time_ms=cls.RETRY_MAX_TIME_MS,
-                        timeout_value=timeout_value,
-                        **kwargs
+             **kwargs):
+        cur, set_comment = cls._find_raw(filter, fields, skip, limit, sort,
+                                         slave_ok=slave_ok,
+                                         excluded_fields=excluded_fields,
+                                         max_time_ms=max_time_ms, **kwargs)
+        try:
+            results = []
+            total = 0
+            for d in cls._iterate_cursor(cur):
+                total += 1
+                results.append(cls._from_augmented_son(
+                    d, fields, excluded_fields))
+                if total == cls.FIND_WARNING_DOCS_LIMIT + 1:
+                    logging.getLogger('mongoengine.read.find_warning').warn(
+                        'Collection %s: return more than %d docs in one FIND action, '
+                        'consider to use FIND_ITER.',
+                        cls.__name__,
+                        cls.FIND_WARNING_DOCS_LIMIT,
                     )
-                if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
-                    return timeout_value
-                raise
-            except pymongo.errors.AutoReconnect:
-                if i == (cls.MAX_AUTO_RECONNECT_TRIES - 1):
-                    raise
-                else:
-                    _sleep(cls.AUTO_RECONNECT_SLEEP)
-            finally:
-                cls.cleanup_trace(set_comment)
+            return results
+        finally:
+            cls.cleanup_trace(set_comment)
 
     @classmethod
     def find_iter(cls, filter, fields=None, skip=0, limit=0, sort=None,
                   slave_ok=False, batch_size=10000,
-                  excluded_fields=None, max_time_ms=0, **kwargs):
-        def _old_find_iter():
+                  excluded_fields=None, max_time_ms=None, **kwargs):
+        cur, set_comment = cls._find_raw(filter, fields, skip, limit,
+                                         sort, slave_ok=slave_ok,
+                                         batch_size=batch_size,
+                                         excluded_fields=excluded_fields,
+                                         max_time_ms=max_time_ms, **kwargs)
+        try:
             last_doc = None
-            cur, set_comment = cls._find_raw(filter, fields, skip, limit,
-                                             sort, slave_ok=slave_ok,
-                                             batch_size=batch_size,
-                                             excluded_fields=excluded_fields,
-                                             max_time_ms=max_time_ms, **kwargs)
-            try:
-                for doc in cls._iterate_cursor(cur):
-                    try:
-                        last_doc = cls._from_augmented_son(
-                            doc, fields, excluded_fields)
-                        yield last_doc
-                    except pymongo.errors.ExecutionTimeout:
-                        execution_timeout_logger.info({
-                            '_comment': str(cur._Cursor__comment),
-                            '_max_time_ms': cur._Cursor__max_time_ms,
-                        })
-                        raise
-            finally:
-                cls.cleanup_trace(set_comment)
-
-        # If the client has been initialized, use the proxy
-        for doc in _old_find_iter():
-            yield doc
+            for doc in cls._iterate_cursor(cur):
+                last_doc = cls._from_augmented_son(
+                    doc, fields, excluded_fields)
+                yield last_doc
+        finally:
+            cls.cleanup_trace(set_comment)
 
     @classmethod
+    @retry(exceptions=RETRY_ERRORS, tries=5, delay=5, logger=RETRY_LOGGER)
     def aggregate(cls, pipeline=None, slave_ok='offline', **kwargs):
+        # TODO max_time_ms: timeout control needed
         slave_ok = _get_slave_ok(slave_ok)
-        pymongo_collection = cls._pymongo().with_options(
-            read_preference=slave_ok.read_pref
-        )
+        pymongo_collection = cls._pymongo(read_preference=slave_ok.read_pref)
         result_iter = pymongo_collection.aggregate(pipeline, cursor={})
         if result_iter:
             return {
@@ -244,85 +182,46 @@ class ReadMixin(BaseMixin):
             }
 
     @classmethod
+    @retry(exceptions=RETRY_ERRORS, tries=5, delay=5, logger=RETRY_LOGGER)
     def distinct(cls, filter, key, fields=None, skip=0, limit=0, sort=None,
                  slave_ok=False, excluded_fields=None,
-                 max_time_ms=None, timeout_value=NO_TIMEOUT_DEFAULT,
+                 max_time_ms=None,
                  **kwargs):
         cur, set_comment = cls._find_raw(filter, fields, skip, limit,
                                          sort, slave_ok=slave_ok,
                                          excluded_fields=excluded_fields,
                                          max_time_ms=max_time_ms, **kwargs)
-
         try:
             return cur.distinct(cls._transform_key(key, cls)[0])
-        except pymongo.errors.ExecutionTimeout:
-            execution_timeout_logger.info({
-                '_comment': str(cur._Cursor__comment),
-                '_max_time_ms': cur._Cursor__max_time_ms,
-            })
-            if cls.ALLOW_TIMEOUT_RETRY and (max_time_ms is None or
-                                            max_time_ms < cls.MAX_TIME_MS):
-                return cls.distinct(
-                    filter, key, fields=fields,
-                    skip=skip, limit=limit,
-                    sort=sort, slave_ok=slave_ok,
-                    excluded_fields=excluded_fields,
-                    max_time_ms=cls.RETRY_MAX_TIME_MS,
-                    timeout_value=timeout_value,
-                    **kwargs
-                )
-            if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
-                return timeout_value
-            raise
         finally:
             cls.cleanup_trace(set_comment)
 
     @classmethod
+    @retry(exceptions=RETRY_ERRORS, tries=5, delay=5, logger=RETRY_LOGGER)
     def find_one(cls, filter, fields=None, skip=0, sort=None, slave_ok=False,
-                 excluded_fields=None, max_time_ms=None,
-                 timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
-
-        cur, set_comment = cls._find_raw(filter, fields, skip=skip, sort=sort,
+                 excluded_fields=None, max_time_ms=None, **kwargs):
+        doc, set_comment = cls._find_raw(filter, fields, skip=skip, sort=sort,
                                          slave_ok=slave_ok, find_one=True,
                                          excluded_fields=excluded_fields,
                                          max_time_ms=max_time_ms, **kwargs)
-
         try:
-            if cur:
-                return cls._from_augmented_son(cur, fields, excluded_fields)
+            if doc:
+                return cls._from_augmented_son(doc, fields, excluded_fields)
             else:
                 return None
-        except pymongo.errors.ExecutionTimeout:
-            execution_timeout_logger.info({
-                '_comment': str(cur._Cursor__comment),
-                '_max_time_ms': cur._Cursor__max_time_ms,
-            })
-            if cls.ALLOW_TIMEOUT_RETRY and (max_time_ms is None or
-                                            max_time_ms < cls.MAX_TIME_MS):
-                return cls.find_one(
-                    filter, fields=fields,
-                    skip=skip,
-                    sort=sort, slave_ok=slave_ok,
-                    excluded_fields=excluded_fields,
-                    max_time_ms=cls.RETRY_MAX_TIME_MS,
-                    timeout_value=timeout_value,
-                    **kwargs
-                )
-            if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
-                return timeout_value
-            raise
         finally:
             cls.cleanup_trace(set_comment)
 
     @classmethod
+    @retry(exceptions=RETRY_ERRORS, tries=5, delay=5, logger=RETRY_LOGGER)
     def count(cls, filter=None, slave_ok=True, max_time_ms=None,
-              timeout_value=NO_TIMEOUT_DEFAULT, skip=0, limit=0,
-              hint=None, **kwargs):
+              skip=0, limit=0, hint=None, **kwargs):
         return cls._count(filter=filter, slave_ok=slave_ok,
                           max_time_ms=max_time_ms,
                           hint=hint,
                           skip=skip, limit=limit)
 
+    @retry(exceptions=RETRY_ERRORS, tries=5, delay=5, logger=RETRY_LOGGER)
     def reload(self, slave_ok=False):
         """Reloads all attributes from the database.
         .. versionadded:: 0.1.2

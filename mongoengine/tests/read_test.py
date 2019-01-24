@@ -1,9 +1,15 @@
 import unittest
-import subprocess
+import pymongo
+import threading
+import random
+import time
 from pymongo.write_concern import WriteConcern
 from pymongo.errors import ConnectionFailure
 from mongoengine.tests.model.testdoc import TestDoc
 from mongoengine.connection import connect, clear_all
+
+# fot test
+SINGLE = False
 
 
 class ReadTests(unittest.TestCase):
@@ -22,6 +28,7 @@ class ReadTests(unittest.TestCase):
             if exception:
                 raise Exception()
 
+    @unittest.skipIf(SINGLE, 'single test')
     def test_find(self):
         limit = 10000
         self._clear()
@@ -48,16 +55,11 @@ class ReadTests(unittest.TestCase):
         for index, doc in enumerate(docs):
             self.assertEquals(doc.test_pk, limit - index - 11)
 
-        TestDoc.ALLOW_TIMEOUT_RETRY = False
-        docs = TestDoc.find({}, max_time_ms=1, timeout_value=TestDoc(
-            test_pk=101, test_int=101))
-        self.assertEquals(docs.test_pk, 101)
-
         docs_iter = TestDoc.find_iter({}, batch_size=10, max_time_ms=100)
         for doc in docs_iter:
             self.assertEquals(doc.test_pk, doc.test_int)
-        TestDoc.ALLOW_TIMEOUT_RETRY = True
 
+    @unittest.skipIf(SINGLE, 'single test')
     def test_distinct(self):
         limit = 100
         self._clear()
@@ -75,6 +77,7 @@ class ReadTests(unittest.TestCase):
         docs = TestDoc.distinct({}, key='test_int')
         self.assertEquals(len(docs), limit - 10 + 1)
 
+    @unittest.skipIf(SINGLE, 'single test')
     def test_reload(self):
         self._clear()
         self._feed_data(1)
@@ -90,6 +93,7 @@ class ReadTests(unittest.TestCase):
         doc.reload()
         self.assertEquals(doc.test_int, 1000)
 
+    @unittest.skipIf(SINGLE, 'single test')
     def test_aggregate(self):
         self._clear()
         self._feed_data(100)
@@ -97,6 +101,7 @@ class ReadTests(unittest.TestCase):
         self.assertEquals(len(docs), 100)
         self.assertTrue(type(docs[0]) is dict)
 
+    @unittest.skipIf(SINGLE, 'single test')
     def test_mongo_connect_and_pool(self):
         clear_all()
         TestDoc._pymongo_collection = {}
@@ -138,6 +143,7 @@ class ReadTests(unittest.TestCase):
             t.join()
         print '%d read threads end successfully' % total
 
+    @unittest.skipIf(SINGLE, 'single test')
     def test_read_preference(self):
         self._clear()
         self._feed_data(100)
@@ -145,15 +151,132 @@ class ReadTests(unittest.TestCase):
         TestDoc.find({}, slave_ok=True)
         TestDoc.find({}, slave_ok=False)
 
+    @unittest.skipIf(SINGLE, 'single test')
     def test_count(self):
         self._clear()
-        self._feed_data(100)
-        self.assertEquals(TestDoc.count(), 100)
+        self._feed_data(50000)
+        self.assertEquals(TestDoc.count(), 50000)
         self.assertEquals(TestDoc.count({'test_pk': {'$lt': 10}}), 10)
         self.assertEquals(TestDoc.count({'test_pk': {'$lt': 10}}, skip=5), 5)
         self.assertEquals(TestDoc.count({'test_pk': {'$lt': 10}}, limit=3), 3)
+        try:
+            TestDoc.count({'test_int': {'$lt': 10000}}, max_time_ms=1)
+        except Exception:
+            pass
+        else:
+            self.fail()
+        TestDoc.count({'test_int': {'$lt': 10}})
+        # Should be warned
+        # TestDoc.count({'test_int': {'$lt': 10}}, max_time_ms=-1)
+        # TestDoc.count({'test_int': {'$lt': 10}}, max_time_ms=20000)
+        # That's OK
+        TestDoc.count({'test_int': {'$lt': 10}},
+                      max_time_ms=-1, slave_ok='offline')
+
+    @unittest.skipIf(SINGLE, 'single test')
+    def test_timeout(self):
+        self._clear()
+        self._feed_data(50000)
+        try:
+            TestDoc.find_one({}, sort=[('test_int', -1)], max_time_ms=1)
+        except Exception:
+            pass
+        else:
+            self.fail()
+        # Should be warned
+        # TestDoc.find_one({}, sort=[('test_int', -1)], max_time_ms=-1)
+        # TestDoc.find({}, sort=[('test_int', -1)], max_time_ms=20000)
+        # it = TestDoc.find_iter({}, sort=[('test_int', -1)], max_time_ms=-1)
+        # doc = it.next()
+        # self.assertEquals(doc.test_int, 49999)
+
+        # That's OK
+        TestDoc.find_one({}, sort=[('test_int', -1)],
+                         max_time_ms=-1, slave_ok='offline')
+        doc = TestDoc.find_one({}, sort=[('test_int', -1)])
+        self.assertEquals(doc.test_int, 49999)
+        try:
+            TestDoc.distinct({}, 'test_int', max_time_ms=1)
+        except Exception:
+            pass
+        else:
+            self.fail()
+
+    @unittest.skipIf(SINGLE, 'single test')
+    def test_find_batch(self):
+        self._clear()
+        self._feed_data(50000)
+        start = time.time()
+        it = TestDoc.find_iter({}, sort=[('test_int', -1)], batch_size=10)
+        for _ in it:
+            pass
+        end = time.time()
+        print 'FIND(batch size:10) takes %s MS' % ((end - start) * 1000)
+        start = time.time()
+        it = TestDoc.find_iter({}, sort=[('test_int', -1)], batch_size=10000)
+        for _ in it:
+            pass
+        end = time.time()
+        print 'FIND(batch size:10000) takes %s MS' % ((end - start) * 1000)
+
+    @unittest.skipIf(SINGLE, 'single test')
+    def test_retry_robust(self):
+        global total
+        total = 0
+
+        def random_close():
+            random.seed(time.time())
+            for _ in xrange(200):
+                time.sleep(0.1)
+                if random.random() < 0.8:
+                   # print 'Clear connection...'
+                    clear_all()
+                else:
+                   # print 'Establish connection...'
+                    connect(db_names=['test'])
+
+        def robust_find():
+            cur = threading.current_thread()
+            start = time.time()
+            index = int(cur.getName())
+            count = 0
+            try:
+                TestDoc.find({}, limit=10000)
+                # TestDoc.distinct([])
+                # TestDoc.distinct({},'test_int')
+                # TestDoc.find_one({})
+                #TestDoc.count({'test_int': {'$lt': 20000}})
+                end = time.time()
+                global total
+                total += 1
+                print 'Thread %s finished in %s MS' % (cur.getName(),
+                                                       (end - start) * 1000)
+            except Exception:
+                print 'Thread %s FIND failed' % cur.getName()
+
+        self._clear()
+        self._feed_data(50000)
+        clear_all()
+        connection_thread = threading.Thread(target=random_close)
+        workers = []
+        for i in xrange(100):
+            t = threading.Thread(name=str(i), target=robust_find)
+            time.sleep(0.05)
+            t.start()
+            workers.append(t)
+        connection_thread.start()
+        for t in workers:
+            t.join()
+        connection_thread.join()
+        print '%d threads finished successfully' % total
 
 
 if __name__ == '__main__':
+    import logging
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(logging.StreamHandler())
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    root_logger.handlers[0].setFormatter(formatter)
     suite = unittest.TestLoader().loadTestsFromTestCase(ReadTests)
     unittest.TextTestRunner(verbosity=2).run(suite)

@@ -1,5 +1,6 @@
 import unittest
-
+import pymongo
+from mongoengine.document import OperationError
 from mongoengine.tests.model.testdoc import TestDoc
 from mongoengine.connection import connect
 
@@ -32,9 +33,10 @@ class WriteTests(unittest.TestCase):
         doc = TestDoc(test_pk=1, test_int=2)
         try:
             doc.save(force_insert=True)
-            self.assertTrue(False)
-        except Exception:
+        except OperationError:
             pass
+        else:
+            self.fail()
         pk_value = doc.save(force_insert=False)
         self.assertEquals(pk_value, 1)
         doc.reload()

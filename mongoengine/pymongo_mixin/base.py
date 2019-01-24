@@ -3,6 +3,8 @@ import greenlet
 import warnings
 import time
 import pymongo
+import logging
+import functools
 from pymongo.write_concern import WriteConcern
 from pymongo.read_preferences import ReadPreference
 from bson import SON, DBRef, ObjectId
@@ -10,8 +12,10 @@ from ..base import FieldStatus, BaseDocument, MongoComment, get_document, \
     ValidationError, get_embedded_doc_fields
 from ..greenletutil import CLGreenlet, GreenletUtil
 from ..timer import log_slow_event
+from ..connection import ConnectionError
 
-RETRY_PYMONGO_ERRORS = (pymongo.errors.PyMongoError,)
+RETRY_ERRORS = (pymongo.errors.PyMongoError, ConnectionError)
+RETRY_LOGGER = logging.getLogger('mongoengine.pymongo_retry')
 
 
 class CLSContext(object):
@@ -22,6 +26,16 @@ class BaseMixin(object):
     @classmethod
     def pk_field(cls):
         return cls._fields[cls._meta['id_field']]
+
+    @classmethod
+    def _check_read_max_time_ms(cls, action_name, max_time_ms, read_preference):
+        if (not (max_time_ms > 0 and max_time_ms < 10000)) and \
+            (read_preference == ReadPreference.PRIMARY or
+                read_preference == ReadPreference.PRIMARY_PREFERRED):
+            logger = logging.getLogger('mongoengine.document.max_time_ms')
+            logger.warn(
+                'Collection %s: no timeout or large timeout for %s operation on primary node',
+                cls.__name__, action_name)
 
     def _update_one_key(self):
         """
@@ -88,16 +102,15 @@ class BaseMixin(object):
         # we can't do async queries if we're on the root greenlet since we have
         # nothing to yield back to
         use_async &= bool(greenlet.getcurrent().parent)
-
-        if not hasattr(cls, '_pymongo_collection'):
-            cls._pymongo_collection = {}
-
-        if use_async not in cls._pymongo_collection:
-            cls._pymongo_collection[use_async] = \
-                _get_db(cls._meta['db_name'],
-                        allow_async=use_async)[cls._meta['collection']]
-
-        return cls._pymongo_collection[use_async].with_options(
+        database = None
+        collection = None
+        database = _get_db(cls._meta['db_name'], allow_async=use_async)
+        if database:
+            collection = database[cls._meta['collection']]
+        if not collection or not database:
+            raise ConnectionError(
+                'No mongo connections for collection %s' % cls.__name__)
+        return collection.with_options(
             read_preference=read_preference,
             write_concern=write_concern)
 

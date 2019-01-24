@@ -301,18 +301,7 @@ class WriteMixin(BulkMixin, BaseMixin):
 
         document = self._transform_value(document, type(self))
         query_filter = self._update_one_key()
-
-        # add in extra criteria, if it exists
-        self._allow_unloaded = True
-        try:
-            for field in self.INCLUDE_SHARD_KEY:
-                value = getattr(self, field)
-                if value:
-                    if criteria is None:
-                        criteria = {}
-                    criteria[field] = value
-        finally:
-            self._allow_unloaded = False
+        self._allow_unloaded = False
 
         if criteria:
             query_filter.update(criteria)
