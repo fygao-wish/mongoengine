@@ -1,7 +1,6 @@
 import contextlib
 import pymongo
 import time
-import greenlet
 import smtplib
 import socket
 import sys

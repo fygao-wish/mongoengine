@@ -155,12 +155,6 @@ def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
     # Connect to the database if not already connected
     if conn_name not in _connections:
         try:
-            # never use async
-            # from pymongo_greenlet import GreenletClient
-            # if allow_async:
-            #     async_conn = GreenletClient.sync_connect(**mongo_client_kwargs)
-            # else:
-            #     async_conn = None
             async_conn = None
             sync_conn = MongoClient(**mongo_client_kwargs)
             sync_conn.admin.command('ismaster')

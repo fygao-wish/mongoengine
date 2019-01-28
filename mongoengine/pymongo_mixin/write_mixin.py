@@ -1,7 +1,6 @@
 import contextlib
 import pymongo
 import time
-import greenlet
 import smtplib
 import socket
 import sys
@@ -16,7 +15,6 @@ from ..base import (ValidationError, MongoComment, get_document,
                     get_embedded_doc_fields,
                     FieldStatus, FieldNotLoadedError)
 from ..queryset import OperationError
-from ..greenletutil import CLGreenlet, GreenletUtil
 from ..timer import log_slow_event
 from ..connection import _get_db, _get_slave_ok, _get_proxy_client,\
     _get_proxy_decider, OpClass

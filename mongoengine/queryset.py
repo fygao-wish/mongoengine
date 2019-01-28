@@ -7,7 +7,6 @@ import re
 import copy
 import itertools
 import time
-import greenlet
 
 __all__ = ['InvalidQueryError', 'InvalidCollectionError']
 

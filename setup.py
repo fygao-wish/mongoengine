@@ -9,11 +9,13 @@ try:
 except:
     pass
 
+
 def get_version(version_tuple):
     version = '%s.%s' % (version_tuple[0], version_tuple[1])
     if version_tuple[2]:
         version = '%s.%s' % (version, version_tuple[2])
     return version
+
 
 # Dirty hack to get version number from monogengine/__init__.py - we can't
 # import it as it depends on PyMongo and PyMongo isn't installed until this
@@ -47,5 +49,5 @@ setup(name='mongoengine',
       classifiers=CLASSIFIERS,
       install_requires=['pymongo==3.0'],
       test_suite='tests',
-      tests_require=['blinker', 'django==1.3']
-)
+      tests_require=['blinker', 'django==1.3', 'gevent', 'greenlet', 'tornado']
+      )
