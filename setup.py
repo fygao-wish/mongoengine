@@ -47,7 +47,7 @@ setup(name='mongoengine',
       long_description=LONG_DESCRIPTION,
       platforms=['any'],
       classifiers=CLASSIFIERS,
-      install_requires=['pymongo==3.0'],
+      install_requires=['pymongo>=3.0'],
       test_suite='tests',
       tests_require=['blinker', 'django==1.3', 'gevent', 'greenlet', 'tornado']
       )
