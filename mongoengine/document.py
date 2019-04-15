@@ -591,9 +591,11 @@ class Document(BaseDocument):
 
     @classmethod
     def _pymongo(cls, use_async=True, read_preference=None):
+        # always use sync client
+        use_async = False
         # we can't do async queries if we're on the root greenlet since we have
         # nothing to yield back to
-        use_async &= bool(greenlet.getcurrent().parent)
+        # use_async &= bool(greenlet.getcurrent().parent)
 
         if not hasattr(cls, '_pymongo_collection'):
             cls._pymongo_collection = {}
@@ -1013,7 +1015,7 @@ class Document(BaseDocument):
                 for doc in proxy_client.instance().aggregate(
                         cls, pipeline=pipeline):
                     results.append(doc)
-                return {'result': results}
+                return results
         result = cls._pymongo(
                 read_preference=pymongo.read_preferences.ReadPreference.SECONDARY
             ).aggregate(
@@ -1022,7 +1024,7 @@ class Document(BaseDocument):
         if result:
             return result
         else:
-            return {'result': []}
+            return []
 
     @classmethod
     def distinct(cls, spec, key, fields=None, skip=0, limit=0, sort=None,

@@ -127,6 +127,7 @@ def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
             if pool_size:
                 kwargs['maxPoolSize'] = pool_size
 
+            allow_async = False # always use sync client
             if allow_async:
                 async_conn = GreenletClient.sync_connect(host, **kwargs)
             else:
