@@ -590,7 +590,7 @@ class Document(BaseDocument):
         return _get_proxy_decider(OpClass.WRITE)
 
     @classmethod
-    def _pymongo(cls, use_async=True):
+    def _pymongo(cls, use_async=True, read_preference=None):
         # we can't do async queries if we're on the root greenlet since we have
         # nothing to yield back to
         use_async &= bool(greenlet.getcurrent().parent)
@@ -603,6 +603,8 @@ class Document(BaseDocument):
                     _get_db(cls._meta['db_name'],
                             allow_async=use_async)[cls._meta['collection']]
 
+        if read_preference:
+            return cls._pymongo_collection[use_async].with_options(read_preference=read_preference)
         return cls._pymongo_collection[use_async]
 
     def _update_one_key(self):
@@ -773,6 +775,9 @@ class Document(BaseDocument):
             })
             warnings.warn('Avoid noTimeout cursors on primaries')
             del kwargs["timeout"]
+        timeout = kwargs.pop("timeout", None)
+        if timeout is not None:
+            kwargs["no_cursor_timeout"] = not timeout
 
         is_scatter_gather = cls.is_scatter_gather(spec)
 
@@ -827,10 +832,8 @@ class Document(BaseDocument):
                 set_comment = False
 
                 with log_slow_event('find', cls._meta['collection'], spec):
-                    cur = cls._pymongo(allow_async).find(spec, fields,
+                    cur = cls._pymongo(allow_async, read_preference=slave_ok.read_pref).find(spec, fields,
                                           skip=skip, limit=limit, sort=sort,
-                                          read_preference=slave_ok.read_pref,
-                                          tag_sets=slave_ok.tags,
                                           **kwargs)
 
                     # max_time_ms <= 0 means its disabled, None means
@@ -1011,9 +1014,11 @@ class Document(BaseDocument):
                         cls, pipeline=pipeline):
                     results.append(doc)
                 return {'result': results}
-        result = cls._pymongo().aggregate(
-            pipeline,
-            read_preference=pymongo.read_preferences.ReadPreference.SECONDARY)
+        result = cls._pymongo(
+                read_preference=pymongo.read_preferences.ReadPreference.SECONDARY
+            ).aggregate(
+                pipeline
+            )
         if result:
             return result
         else:

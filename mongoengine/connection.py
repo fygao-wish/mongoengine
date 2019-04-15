@@ -123,6 +123,10 @@ def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
     # Connect to the database if not already connected
     if conn_name not in _connections:
         try:
+            pool_size = kwargs.pop('max_pool_size', None)
+            if pool_size:
+                kwargs['maxPoolSize'] = pool_size
+
             if allow_async:
                 async_conn = GreenletClient.sync_connect(host, **kwargs)
             else:
