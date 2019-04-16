@@ -5,6 +5,7 @@ from queryset import OperationError
 from cl.utils.greenletutil import CLGreenlet, GreenletUtil
 import contextlib
 import pymongo
+import pymongo.operations
 import time
 import greenlet
 import smtplib
@@ -256,10 +257,7 @@ class Document(BaseDocument):
             if proxy_client:
                 usemongoproxy = cls._get_write_decider()
             if not usemongoproxy:
-                if unordered:
-                    cls.init_bulk_attr(cls.BULK_OP,cls._pymongo().initialize_unordered_bulk_op())
-                else:
-                    cls.init_bulk_attr(cls.BULK_OP,cls._pymongo().initialize_ordered_bulk_op())
+                cls.init_bulk_attr(cls.BULK_OP, list())
             else:
                 cls.init_bulk_attr(cls.PROXY_BULK_OP, list())
             yield
@@ -268,7 +266,8 @@ class Document(BaseDocument):
                     proxy_client.instance().bulk(cls, cls.get_bulk_attr(cls.PROXY_BULK_OP), unordered)
                 else:
                     w = cls._meta.get('write_concern', 1)
-                    cls.get_bulk_attr(cls.BULK_OP).execute(write_concern={'w': w})
+                    bulk_ops = cls.get_bulk_attr(cls.BULK_OP)
+                    cls._pymongo().bulk_write(bulk_ops, ordered=not unordered)
 
                 for object_id, props in cls.get_bulk_attr(cls.BULK_SAVE_OBJECTS).iteritems():
                     instance = props['obj']
@@ -345,23 +344,19 @@ class Document(BaseDocument):
         proxy_bulk_op = cls.get_bulk_attr(cls.PROXY_BULK_OP)
         # pymongo's bulk operation support is based on chaining
         if upsert:
-            if bulk_op is not None:
-                op = bulk_op.find(spec).upsert()
             bulk_step['op'] = 'upsert'
         else:
             if multi:
                 bulk_step['op'] = 'update_all'
             else:
                 bulk_step['op'] = 'update'
-            if bulk_op is not None:
-                op = bulk_op.find(spec)
 
         if bulk_op is not None:
             if multi:
-                op.update(document)
+                op = pymongo.operations.UpdateMany(spec, document, upsert)
             else:
-                op.update_one(document)
-
+                op = pymongo.operations.UpdateOne(spec, document, upsert)
+            bulk_op.append(op)
             cls.get_bulk_attr(cls.BULK_INDEX).inc()
         else:
             proxy_bulk_op.append(bulk_step)
@@ -382,26 +377,24 @@ class Document(BaseDocument):
         proxy_bulk_op = cls.get_bulk_attr(cls.PROXY_BULK_OP)
 
         if bulk_op is not None:
-            op = bulk_op.find(spec)
-        if multi:
-            if bulk_op is not None:
-                op.remove()
+            if multi:
+                op = pymongo.operations.DeleteMany(spec)
             else:
+                op = pymongo.operations.DeleteOne(spec)
+            bulk_op.append(op)
+            cls.get_bulk_attr(cls.BULK_INDEX).inc()
+        else:
+            if multi:
                 proxy_bulk_op.append({
                     'op': 'remove_all',
                     'filter': spec
                 })
-        else:
-            if bulk_op is not None:
-                op.remove_one()
             else:
                 proxy_bulk_op.append({
                     'op': 'remove',
                     'filter': spec
                 })
 
-        if bulk_op is not None:
-            cls.get_bulk_attr(cls.BULK_INDEX).inc()
 
     def bulk_save(self, validate=True):
         cls = self.__class__
@@ -436,7 +429,8 @@ class Document(BaseDocument):
             doc[hash_field.db_field] = hash_field.to_mongo(self['shard_hash'])
 
         if bulk_op is not None:
-            bulk_op.insert(doc)
+            op = pymongo.operations.InsertOne(doc)
+            bulk_op.append(op)
             cls.get_bulk_attr(cls.BULK_SAVE_OBJECTS)[object_id] = {
                 'index': cls.get_bulk_attr(cls.BULK_INDEX).get(),
                 'obj': self
@@ -591,11 +585,9 @@ class Document(BaseDocument):
 
     @classmethod
     def _pymongo(cls, use_async=True, read_preference=None):
-        # always use sync client
-        use_async = False
         # we can't do async queries if we're on the root greenlet since we have
         # nothing to yield back to
-        # use_async &= bool(greenlet.getcurrent().parent)
+        use_async &= bool(greenlet.getcurrent().parent)
 
         if not hasattr(cls, '_pymongo_collection'):
             cls._pymongo_collection = {}

@@ -1,5 +1,5 @@
 from pymongo.mongo_client import MongoClient
-from pymongo_greenlet import GreenletClient
+from motor.motor_tornado import MotorClient
 from pymongo.read_preferences import ReadPreference
 import collections
 
@@ -127,9 +127,8 @@ def connect(host='localhost', conn_name=None, db_names=None, allow_async=False,
             if pool_size:
                 kwargs['maxPoolSize'] = pool_size
 
-            allow_async = False # always use sync client
             if allow_async:
-                async_conn = GreenletClient.sync_connect(host, **kwargs)
+                async_conn = MotorClient(host, **kwargs)
             else:
                 async_conn = None
 
