@@ -1522,7 +1522,7 @@ class Document(BaseDocument):
                                                 **kwargs))
 
             # do in-memory updates on the object if the query succeeded
-            if result['n'] == 1:
+            if result.modified_count == 1:
                 for field, new_val in ops.iteritems():
                     self[field] = new_val
 
