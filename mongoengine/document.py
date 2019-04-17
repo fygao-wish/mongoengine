@@ -1273,6 +1273,9 @@ class Document(BaseDocument):
                     )
                 finally:
                     cls.cleanup_trace(set_comment)
+
+        spec = cls._transform_value(spec, cls)
+        spec = cls._update_spec(spec, **kwargs)
         for i in xrange(cls.MAX_AUTO_RECONNECT_TRIES):
             try:
                 return wait_for_future(cls._pymongo().count_documents(
