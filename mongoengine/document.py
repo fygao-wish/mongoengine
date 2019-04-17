@@ -1403,7 +1403,6 @@ class Document(BaseDocument):
             with log_slow_event("remove", cls._meta['collection'], spec):
                 result = wait_for_future(cls._pymongo().delete_many(
                     spec,
-                    w=cls._meta['write_concern'],
                     **kwargs
                 ))
             return result
