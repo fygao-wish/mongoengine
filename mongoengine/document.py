@@ -134,7 +134,7 @@ class Document(BaseDocument):
 
     __metaclass__ = TopLevelDocumentMetaclass
 
-    def save(self, safe=True, force_insert=None, validate=True):
+    def save(self, safe=True, force_insert=None, validate=True, session=None):
         """Save the :class:`~mongoengine.Document` to the database. If the
         document already exists, it will be updated, otherwise it will be
         created.
@@ -181,10 +181,14 @@ class Document(BaseDocument):
                         object_id = doc['_id']
                     else:
                         collection = self._pymongo()
-                        object_id = wait_for_future(collection.insert_one(doc)).inserted_id
+                        object_id = wait_for_future(
+                            collection.insert_one(doc, session=session)
+                        ).inserted_id
                 else:
                     collection = self._pymongo()
-                    object_id = wait_for_future(collection.insert_one(doc)).inserted_id
+                    object_id = wait_for_future(
+                        collection.insert_one(doc, session=session)
+                    ).inserted_id
             else:
                 if proxy_client:
                     if self._get_write_decider():
@@ -199,11 +203,11 @@ class Document(BaseDocument):
                     else:
                         collection = self._pymongo()
                         wait_for_future(collection.replace_one(
-                            {"_id" : doc["_id"]}, doc, upsert=True))
+                            {"_id" : doc["_id"]}, doc, upsert=True, session=session))
                 else:
                     collection = self._pymongo()
                     wait_for_future(collection.replace_one(
-                            {"_id" : doc["_id"]}, doc, upsert=True))
+                            {"_id" : doc["_id"]}, doc, upsert=True, session=session))
                 object_id = doc["_id"]
         except (pymongo.errors.OperationFailure, ProxiedGrpcError, RPCException), err:
             message = 'Could not save document (%s)'
@@ -213,7 +217,7 @@ class Document(BaseDocument):
         id_field = self._meta['id_field']
         self[id_field] = self._fields[id_field].to_python(object_id)
 
-    def delete(self, safe=True):
+    def delete(self, safe=True, session=None):
         """Delete the :class:`~mongoengine.Document` from the database. This
         will only take effect if the document has been previously saved.
 
@@ -222,19 +226,19 @@ class Document(BaseDocument):
         id_field = self._meta['id_field']
         object_id = self._fields[id_field].to_mongo(self[id_field])
         try:
-            self.remove({id_field: object_id})
+            self.remove({id_field: object_id}, session=session)
         except (pymongo.errors.OperationFailure, ProxiedGrpcError, RPCException), err:
             message = u'Could not delete document (%s)' % err.message
             raise OperationError(message)
 
-    def reload(self, slave_ok=False):
+    def reload(self, slave_ok=False, session=None):
         """Reloads all attributes from the database.
 
         .. versionadded:: 0.1.2
         """
         id_field = self._meta['id_field']
         obj = self.__class__.find_one(self._by_id_key(self[id_field]),
-                                      slave_ok=slave_ok)
+                                      slave_ok=slave_ok, session=session)
         for field in self._fields:
             setattr(self, field, obj[field])
 
@@ -269,7 +273,7 @@ class Document(BaseDocument):
 
     @classmethod
     @contextlib.contextmanager
-    def bulk(cls, allow_empty=None, unordered=False):
+    def bulk(cls, allow_empty=None, unordered=False, session=None):
         if cls.get_bulk_attr(cls.BULK_OP) is not None or cls.get_bulk_attr(cls.PROXY_BULK_OP) is not None:
             raise RuntimeError('Cannot nest bulk operations')
         try:
@@ -292,7 +296,8 @@ class Document(BaseDocument):
                     w = cls._meta.get('write_concern', 1)
                     bulk_ops = cls.get_bulk_attr(cls.BULK_OP)
                     wait_for_future(
-                        cls._pymongo().bulk_write(bulk_ops, ordered=not unordered))
+                        cls._pymongo().bulk_write(
+                            bulk_ops, ordered=not unordered, session=session))
 
                 for object_id, props in cls.get_bulk_attr(cls.BULK_SAVE_OBJECTS).iteritems():
                     instance = props['obj']
@@ -769,7 +774,7 @@ class Document(BaseDocument):
     def find_raw(cls, spec, fields=None, skip=0, limit=0, sort=None,
                  slave_ok=True, find_one=False, allow_async=True, hint=None,
                  batch_size=10000, excluded_fields=None, max_time_ms=None,
-                 comment=None, from_mengine=True, **kwargs):
+                 comment=None, from_mengine=True, session=None, **kwargs):
         proxy_client = cls._get_proxy_client()
         if not from_mengine and proxy_client:
             if cls._get_read_decider():
@@ -851,9 +856,12 @@ class Document(BaseDocument):
                 set_comment = False
 
                 with log_slow_event('find', cls._meta['collection'], spec):
-                    cur = cls._pymongo(allow_async, read_preference=slave_ok.read_pref).find(spec, fields,
-                                          skip=skip, limit=limit, sort=sort,
-                                          **kwargs)
+                    cur = cls._pymongo(
+                        allow_async, read_preference=slave_ok.read_pref
+                    ).find(
+                        spec, fields, skip=skip, limit=limit,
+                        sort=sort, session=session, **kwargs
+                    )
 
                     # max_time_ms <= 0 means its disabled, None means
                     # use default value, otherwise use the value specified
@@ -918,7 +926,7 @@ class Document(BaseDocument):
     @classmethod
     def find(cls, spec, fields=None, skip=0, limit=0, sort=None,
              slave_ok=True, excluded_fields=None, max_time_ms=None,
-             timeout_value=NO_TIMEOUT_DEFAULT,**kwargs):
+             timeout_value=NO_TIMEOUT_DEFAULT, session=None, **kwargs):
         # If the client has been initialized, use the proxy
         proxy_client = cls._get_proxy_client()
         if proxy_client:
@@ -941,7 +949,7 @@ class Document(BaseDocument):
             cur, set_comment = cls.find_raw(spec, fields, skip, limit, sort,
                                slave_ok=slave_ok,
                                excluded_fields=excluded_fields,
-                               max_time_ms=max_time_ms,**kwargs)
+                               max_time_ms=max_time_ms,session=session, **kwargs)
 
             try:
                 return [
@@ -962,6 +970,7 @@ class Document(BaseDocument):
                         excluded_fields=excluded_fields,
                         max_time_ms=cls.RETRY_MAX_TIME_MS,
                         timeout_value=timeout_value,
+                        session=session,
                         **kwargs
                     )
                 if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
@@ -978,14 +987,14 @@ class Document(BaseDocument):
     @classmethod
     def find_iter(cls, spec, fields=None, skip=0, limit=0, sort=None,
                   slave_ok=True, timeout=True, batch_size=10000,
-                  excluded_fields=None, max_time_ms=0, **kwargs):
+                  excluded_fields=None, max_time_ms=0, session=None, **kwargs):
         def _old_find_iter():
             last_doc = None
             cur, set_comment = cls.find_raw(spec, fields, skip, limit,
                                sort, slave_ok=slave_ok, timeout=timeout,
                                batch_size=batch_size,
                                excluded_fields=excluded_fields,
-                               max_time_ms=max_time_ms,**kwargs)
+                               max_time_ms=max_time_ms, session=session, **kwargs)
             try:
                 for doc in cls._iterate_cursor(cur):
                     try:
@@ -1025,7 +1034,7 @@ class Document(BaseDocument):
                 yield doc
 
     @classmethod
-    def aggregate(cls, pipeline=None, **kwargs):
+    def aggregate(cls, pipeline=None, session=None, **kwargs):
         proxy_client = cls._get_proxy_client()
         if proxy_client:
             if cls._get_read_decider():
@@ -1037,7 +1046,8 @@ class Document(BaseDocument):
         cur = cls._pymongo(
                 read_preference=pymongo.read_preferences.ReadPreference.SECONDARY
             ).aggregate(
-                pipeline
+                pipeline,
+                session=session
             )
         results = []
         if cur:
@@ -1049,7 +1059,7 @@ class Document(BaseDocument):
     def distinct(cls, spec, key, fields=None, skip=0, limit=0, sort=None,
                  slave_ok=True, timeout=True, excluded_fields=None,
                  max_time_ms=None, timeout_value=NO_TIMEOUT_DEFAULT,
-                 **kwargs):
+                 session=None, **kwargs):
 
         proxy_client = cls._get_proxy_client()
         if proxy_client:
@@ -1065,7 +1075,7 @@ class Document(BaseDocument):
         cur, set_comment = cls.find_raw(spec, fields, skip, limit,
                            sort, slave_ok=slave_ok, timeout=timeout,
                            excluded_fields=excluded_fields,
-                           max_time_ms=max_time_ms,**kwargs)
+                           max_time_ms=max_time_ms, session=session, **kwargs)
 
         try:
             return wait_for_future(cur.distinct(cls._transform_key(key, cls)[0]))
@@ -1084,6 +1094,7 @@ class Document(BaseDocument):
                     excluded_fields=excluded_fields,
                     max_time_ms=cls.RETRY_MAX_TIME_MS,
                     timeout_value=timeout_value,
+                    session=session,
                     **kwargs
                 )
             if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
@@ -1134,7 +1145,7 @@ class Document(BaseDocument):
     @classmethod
     def find_one(cls, spec, fields=None, skip=0, sort=None, slave_ok=True,
                  excluded_fields=None, max_time_ms=None,
-                 timeout_value=NO_TIMEOUT_DEFAULT, **kwargs):
+                 timeout_value=NO_TIMEOUT_DEFAULT, session=None, **kwargs):
         # If the client has been initialized, use the proxy
         proxy_client = cls._get_proxy_client()
         if proxy_client:
@@ -1157,7 +1168,7 @@ class Document(BaseDocument):
         cur, set_comment = cls.find_raw(spec, fields, skip=skip, sort=sort,
                          slave_ok=slave_ok, find_one=True,
                          excluded_fields=excluded_fields,
-                         max_time_ms=max_time_ms,**kwargs)
+                         max_time_ms=max_time_ms, session=session, **kwargs)
 
         try:
             if cur:
@@ -1178,6 +1189,7 @@ class Document(BaseDocument):
                     excluded_fields=excluded_fields,
                     max_time_ms=cls.RETRY_MAX_TIME_MS,
                     timeout_value=timeout_value,
+                    session=session,
                     **kwargs
                 )
             if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
@@ -1189,7 +1201,7 @@ class Document(BaseDocument):
     @classmethod
     def find_and_modify(cls, spec, update=None, sort=None, remove=False,
                         new=False, fields=None, upsert=False,
-                        excluded_fields=None, skip_transform=False, **kwargs):
+                        excluded_fields=None, skip_transform=False, session=None, **kwargs):
         if skip_transform:
             if update is None and not remove:
                 raise ValueError("Cannot have empty update and no remove flag")
@@ -1239,12 +1251,14 @@ class Document(BaseDocument):
                 if remove:
                     result = wait_for_future(cls._pymongo().find_one_and_delete(
                         spec, sort=sort, remove=remove,
-                        projection=transformed_fields, **kwargs
+                        projection=transformed_fields,
+                        session=session, **kwargs
                     ))
                 else:
                     result = wait_for_future(cls._pymongo().find_one_and_update(
                         spec, sort=sort, update=update,
-                        projection=transformed_fields, upsert=upsert, **kwargs
+                        projection=transformed_fields,
+                        upsert=upsert, session=session, **kwargs
                     ))
             if result:
                 return cls._from_augmented_son(result, fields, excluded_fields)
@@ -1255,7 +1269,7 @@ class Document(BaseDocument):
 
     @classmethod
     def count(cls, spec, slave_ok=True, comment=None, max_time_ms=None,
-        timeout_value=NO_TIMEOUT_DEFAULT,**kwargs):
+        timeout_value=NO_TIMEOUT_DEFAULT, session=None, **kwargs):
 
         # If the client has been initialized, use the proxy
         proxy_client = cls._get_proxy_client()
@@ -1279,7 +1293,7 @@ class Document(BaseDocument):
         for i in xrange(cls.MAX_AUTO_RECONNECT_TRIES):
             try:
                 return wait_for_future(cls._pymongo().count_documents(
-                    spec, *kwargs
+                    spec, session=session, *kwargs
                 ))
             except pymongo.errors.AutoReconnect:
                 if i == (cls.MAX_AUTO_RECONNECT_TRIES - 1):
@@ -1299,6 +1313,7 @@ class Document(BaseDocument):
                         comment=comment,
                         max_time_ms=cls.RETRY_MAX_TIME_MS,
                         timeout_value=timeout_value,
+                        session=session,
                         **kwargs
                     )
                 if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
@@ -1307,7 +1322,7 @@ class Document(BaseDocument):
 
     @classmethod
     def update(cls, spec, document, upsert=False, multi=True,
-                **kwargs):
+                session=None, **kwargs):
         # updates behave like set instead of find (None)... this is relevant for
         # setting list values since you're setting the value of the whole list,
         # not an element inside the list (like in find)
@@ -1366,18 +1381,20 @@ class Document(BaseDocument):
                     result = wait_for_future(cls._pymongo().update_many(spec,
                                                 document,
                                                 upsert=upsert,
+                                                session=session,
                                                 **kwargs))
                 else:
                     result = wait_for_future(cls._pymongo().update_one(spec,
                                                 document,
                                                 upsert=upsert,
+                                                session=session,
                                                 **kwargs))
             return result
         finally:
             cls.cleanup_trace(set_comment)
 
     @classmethod
-    def remove(cls, spec, **kwargs):
+    def remove(cls, spec, session=None, **kwargs):
         if not spec:
             raise ValueError("Cannot do empty specs")
 
@@ -1398,11 +1415,11 @@ class Document(BaseDocument):
                     w=cls._meta['write_concern'], **kwargs
                 )
 
-
         try:
             with log_slow_event("remove", cls._meta['collection'], spec):
                 result = wait_for_future(cls._pymongo().delete_many(
                     spec,
+                    session=session,
                     **kwargs
                 ))
             return result
@@ -1410,7 +1427,7 @@ class Document(BaseDocument):
             cls.cleanup_trace(set_comment)
 
     def update_one(self, document, spec=None, upsert=False,
-                   criteria=None, comment=None,
+                   criteria=None, comment=None, session=None,
                    **kwargs):
         ops = {}
 
@@ -1519,6 +1536,7 @@ class Document(BaseDocument):
                 result = wait_for_future(self._pymongo().update_one(query_spec,
                                                 document,
                                                 upsert=upsert,
+                                                session=session,
                                                 **kwargs))
 
             # do in-memory updates on the object if the query succeeded
@@ -1549,8 +1567,8 @@ class Document(BaseDocument):
         return self.update_one({'$addToSet': kwargs})
 
     @classmethod
-    def drop_collection(cls):
-        wait_for_future(cls._pymongo().drop())
+    def drop_collection(cls, session=None):
+        wait_for_future(cls._pymongo().drop(session=session))
 
     def _transform_query(self, query, validate=True):
         cls = type(self)
