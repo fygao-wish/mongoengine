@@ -1288,7 +1288,8 @@ class Document(BaseDocument):
         spec = cls._update_spec(spec, **kwargs)
         for i in xrange(cls.MAX_AUTO_RECONNECT_TRIES):
             try:
-                return wait_for_future(cls._pymongo().count_documents(
+                read_pref = _get_slave_ok(slave_ok).read_pref
+                return wait_for_future(cls._pymongo(read_preference=read_pref).count_documents(
                     spec, session=session, *kwargs
                 ))
             except pymongo.errors.AutoReconnect:
