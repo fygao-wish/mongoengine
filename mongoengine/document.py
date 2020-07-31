@@ -22,11 +22,11 @@ import warnings
 from bson import SON, ObjectId, DBRef
 from connection import _get_db, _get_slave_ok, _get_proxy_client, _get_proxy_decider, OpClass
 
-from cl_utils.greenletutil import CLGreenlet, GreenletUtil
+from wishwms.cl_utils.greenletutil import CLGreenlet, GreenletUtil
 
 try:
-    from cl_utils.soa.services.base_client import RPCException
-    from cl_utils.soa.services.base_grpc_client import ProxiedGrpcError
+    from wishwms.cl_utils.soa.services.base_client import RPCException
+    from wishwms.cl_utils.soa.services.base_grpc_client import ProxiedGrpcError
 except:
     RPCException = None
     ProxiedGrpcError = None
