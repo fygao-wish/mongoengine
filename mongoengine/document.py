@@ -1453,7 +1453,7 @@ class Document(BaseDocument):
                             Document._transform_value(subvalue, value_context,
                                                       op, validate, fields)
 
-                        transformed_list.append(transformed_value)
+                    transformed_list.append(transformed_value)
                 else:
                     transformed_list.append(listel)
             value = transformed_list
