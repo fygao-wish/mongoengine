@@ -356,6 +356,7 @@ class Document(BaseDocument):
         if cls.get_bulk_attr(cls.BULK_OP) is None and cls.get_bulk_attr(cls.PROXY_BULK_OP) is None:
             raise RuntimeError('Cannot do bulk operation outside of bulk context')
 
+        cls.before_update(spec, document)
         document = cls._transform_value(document, cls, op='$set')
         spec = cls._transform_value(spec, cls)
 
@@ -1202,6 +1203,7 @@ class Document(BaseDocument):
     def find_and_modify(cls, spec, update=None, sort=None, remove=False,
                         new=False, fields=None, upsert=False,
                         excluded_fields=None, skip_transform=False, session=None, **kwargs):
+        cls.before_update(spec, update)
         if skip_transform:
             if update is None and not remove:
                 raise ValueError("Cannot have empty update and no remove flag")
@@ -1326,6 +1328,7 @@ class Document(BaseDocument):
         # setting list values since you're setting the value of the whole list,
         # not an element inside the list (like in find)
         is_scatter_gather = cls.is_scatter_gather(spec)
+        cls.before_update(spec, document)
 
         document = cls._transform_value(document, cls, op='$set')
         spec = cls._transform_value(spec, cls)
@@ -1432,6 +1435,8 @@ class Document(BaseDocument):
 
         if not document:
             raise ValueError("Cannot do empty updates")
+
+        self.before_update(spec, document)
 
         # only do in-memory updates if criteria is None since the updates may
         # not be correct otherwise (since we don't know if the criteria is
@@ -1564,6 +1569,22 @@ class Document(BaseDocument):
 
     def add_to_set(self, session=None, **kwargs):
         return self.update_one({'$addToSet': kwargs}, session=session)
+
+    @classmethod
+    def before_update(cls, spec, document):
+        """Hook runs before updates, including update, update_one, bulk_update,
+        find_and_modify. Note that spec and document can both be None.
+
+        Example:
+
+            @classmethod
+            def before_update(cls, spec, document):
+                if document is not None:
+                    set_dict = document.get("$set", {})
+                    set_dict.update({"updated_at": datetime.utcnow()})
+                    document["$set"] = set_dict
+        """
+        pass
 
     @classmethod
     def drop_collection(cls, session=None):
