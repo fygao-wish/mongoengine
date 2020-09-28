@@ -4,6 +4,7 @@ from base import (DocumentMetaclass, TopLevelDocumentMetaclass, BaseDocument,
 from queryset import OperationError
 import contextlib
 import pymongo
+import pymongo.helpers
 import pymongo.operations
 import pymongo.cursor
 import pymongo.command_cursor
@@ -1037,8 +1038,13 @@ class Document(BaseDocument):
                 yield doc
 
     @classmethod
-    def aggregate(cls, pipeline=None, session=None, **kwargs):
+    def aggregate(cls, pipeline=None, session=None, hint=None, **kwargs):
         proxy_client = cls._get_proxy_client()
+        pykwargs = {}
+        if hint:
+            hint = cls._transform_hint(hint)
+            # HACK pymongo aggregate won't transform hint automatically
+            pykwargs["hint"] = pymongo.helpers._index_document(hint)
         if proxy_client:
             if cls._get_read_decider():
                 results = []
@@ -1050,7 +1056,8 @@ class Document(BaseDocument):
                 read_preference=pymongo.read_preferences.ReadPreference.SECONDARY
             ).aggregate(
                 pipeline,
-                session=session
+                session=session,
+                **pykwargs
             )
         results = []
         if cur:
