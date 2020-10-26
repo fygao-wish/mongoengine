@@ -1,4 +1,9 @@
 from __future__ import absolute_import
+from builtins import str
+from builtins import next
+from builtins import range
+from past.builtins import basestring
+from builtins import object
 from .connection import _get_db
 
 import pprint
@@ -163,7 +168,7 @@ class QueryCompilerVisitor(QNodeVisitor):
         """
         combined_query = {}
         for query in queries:
-            for field, ops in query.items():
+            for field, ops in list(query.items()):
                 if field not in combined_query:
                     combined_query[field] = ops
                 else:
@@ -478,7 +483,7 @@ class QuerySet(object):
                            'exact', 'iexact']
 
         mongo_query = {}
-        for key, value in query.items():
+        for key, value in list(query.items()):
             if key == "__raw__":
                 mongo_query.update(value)
                 continue
@@ -654,7 +659,7 @@ class QuerySet(object):
 
         return doc_map
 
-    def next(self):
+    def __next__(self):
         """Wrap the result in a :class:`~mongoengine.Document` object.
         """
         try:
@@ -893,7 +898,7 @@ class QuerySet(object):
                      'pull', 'pull_all', 'add_to_set']
 
         mongo_update = {}
-        for key, value in update.items():
+        for key, value in list(update.items()):
             parts = key.split('__')
             # Check for an operator and transform to mongo-style if there is
             op = None
@@ -968,10 +973,10 @@ class QuerySet(object):
             if ret is not None and 'n' in ret:
                 return ret['n']
         except pymongo.errors.OperationFailure as err:
-            if unicode(err) == u'multi not coded yet':
+            if str(err) == u'multi not coded yet':
                 message = u'update() method requires MongoDB 1.1.3+'
                 raise OperationError(message)
-            raise OperationError(u'Update failed (%s)' % unicode(err))
+            raise OperationError(u'Update failed (%s)' % str(err))
 
     def update_one(self, safe_update=True, upsert=False, **update):
         """Perform an atomic update on first field matched by the query. When
@@ -999,7 +1004,7 @@ class QuerySet(object):
             if ret is not None and 'n' in ret:
                 return ret['n']
         except pymongo.errors.OperationFailure as e:
-            raise OperationError(u'Update failed [%s]' % unicode(e))
+            raise OperationError(u'Update failed [%s]' % str(e))
 
     def __iter__(self):
         return self

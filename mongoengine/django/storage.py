@@ -1,6 +1,9 @@
+from future import standard_library
+standard_library.install_aliases()
+from builtins import next
 import os
 import itertools
-import urlparse
+import urllib.parse
 
 from mongoengine import *
 from django.conf import settings
@@ -70,7 +73,7 @@ class GridFSStorage(Storage):
         """
         if self.base_url is None:
             raise ValueError("This file is not accessible via a URL.")
-        return urlparse.urljoin(self.base_url, name).replace('\\', '/')
+        return urllib.parse.urljoin(self.base_url, name).replace('\\', '/')
 
     def _get_doc_with_name(self, name):
         """Find the documents in the store with the given name

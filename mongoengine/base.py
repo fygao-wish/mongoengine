@@ -1,4 +1,8 @@
 from __future__ import absolute_import
+from builtins import str
+from builtins import range
+from past.builtins import basestring
+from builtins import object
 from .queryset import QuerySet, QuerySetManager
 from .queryset import DoesNotExist, MultipleObjectsReturned
 
@@ -209,7 +213,7 @@ class BaseField(object):
 
         if value not in self.choices:
             raise ValidationError("Value must be one of %s."
-                % unicode(self.choices))
+                % str(self.choices))
 
     def _validate(self, value):
         self.validate_choices(value)
@@ -236,11 +240,11 @@ class ObjectIdField(BaseField):
     def to_mongo(self, value):
         if not isinstance(value, bson.objectid.ObjectId):
             try:
-                return bson.objectid.ObjectId(unicode(value))
+                return bson.objectid.ObjectId(str(value))
             except Exception as e:
                 if self.dup_check:
                     #e.message attribute has been deprecated since Python 2.6
-                    raise ValidationError(unicode(e))
+                    raise ValidationError(str(e))
                 else:
                     return value
         return value
@@ -253,7 +257,7 @@ class ObjectIdField(BaseField):
             # allow None value if field not primary_key
             return
         try:
-            bson.objectid.ObjectId(unicode(value))
+            bson.objectid.ObjectId(str(value))
         except:
             raise ValidationError('Invalid Object ID')
 
@@ -330,7 +334,7 @@ class DocumentMetaclass(type):
                 #inherit field_names from superclass
                 field_to_name_map.update(
                     [(_field.db_field, attr_name)
-                     for attr_name, _field in base._fields.iteritems()])
+                     for attr_name, _field in base._fields.items()])
 
             if hasattr(base, '_meta'):
                 # Ensure that the Document class may be subclassed -
@@ -363,7 +367,7 @@ class DocumentMetaclass(type):
         attrs['_superclasses'] = superclasses
 
         # Add the document's fields and relationships to the _fields attribute
-        for attr_name, attr_value in attrs.items():
+        for attr_name, attr_value in list(attrs.items()):
             if hasattr(attr_value, "__class__"):
                 if issubclass(attr_value.__class__, BaseField):
                     attr_value.name = attr_name
@@ -394,7 +398,7 @@ class DocumentMetaclass(type):
         attrs['_allow_unloaded'] = False
 
         new_class = super_new(cls, name, bases, attrs)
-        for field in new_class._fields.values():
+        for field in list(new_class._fields.values()):
             field.owner_document = new_class
 
         from mongoengine.document import EmbeddedDocument
@@ -514,7 +518,7 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
         new_class._meta['indexes'] = user_indexes
 
         unique_indexes = []
-        for field_name, field in new_class._fields.items():
+        for field_name, field in list(new_class._fields.items()):
             # Generate a list of indexes needed by uniqueness constraints
             if field.unique:
                 field.required = True
@@ -599,7 +603,7 @@ class BaseDocument(object):
             self._all_loaded = True
             self._allow_unloaded = True
             try:
-                for attr_name, attr_value in self._fields.iteritems():
+                for attr_name, attr_value in self._fields.items():
                     # Use default value if present
                     value = getattr(self, attr_name, None)
                     setattr(self, attr_name, value)
@@ -607,24 +611,24 @@ class BaseDocument(object):
                 self._allow_unloaded = False
 
             # Assign initial values to instance
-            for attr_name, attr_value in values.iteritems():
+            for attr_name, attr_value in values.items():
                 try:
                     setattr(self, attr_name, attr_value)
                 except AttributeError:
                     pass
 
-        for rel_name, rel in self._relationships.iteritems():
+        for rel_name, rel in self._relationships.items():
             setattr(self, rel_name, rel)
 
     @property
     def _data(self):
         data_dict = {}
-        for field_name in self._fields.iterkeys():
+        for field_name in self._fields.keys():
             value = self._get_raw(field_name)
             if isinstance(value, (dict, list)):
                 value = copy.deepcopy(value)
             data_dict[field_name] = value
-        for rel_name in self._relationships.iterkeys():
+        for rel_name in self._relationships.keys():
             data_dict[rel_name] = self._raw_data.get(rel_name)
         return data_dict
 
@@ -668,7 +672,7 @@ class BaseDocument(object):
         """
         # Get a list of tuples of field names and their current values
         fields = list()
-        for name, field in self._fields.items():
+        for name, field in list(self._fields.items()):
             db_field = field.db_field
             if self._get_field_status(db_field) == FieldStatus.NOT_LOADED:
                 continue
@@ -747,19 +751,19 @@ class BaseDocument(object):
     def __len__(self):
         return len(self._raw_data) + len(self._lazy_data)
 
-    def __nonzero__(self):
+    def __bool__(self):
         return True
 
     def __repr__(self):
         try:
-            u = unicode(self)
+            u = str(self)
         except (UnicodeEncodeError, UnicodeDecodeError):
             u = '[Bad Unicode data]'
         return u'<%s: %s>' % (self.__class__.__name__, u)
 
     def __str__(self):
         if hasattr(self, '__unicode__'):
-            return unicode(self).encode('utf-8')
+            return str(self).encode('utf-8')
         return '%s object' % self.__class__.__name__
 
     def to_mongo(self):
@@ -768,7 +772,7 @@ class BaseDocument(object):
         data = {}
         self._allow_unloaded = True
         try:
-            for field_name, field in self._fields.items():
+            for field_name, field in list(self._fields.items()):
                 # don't deference ReferenceField if it's not
                 # dereferenced yet
                 if field.db_field in self._lazy_data:
@@ -784,7 +788,7 @@ class BaseDocument(object):
             if not (hasattr(self, '_meta') and
                     self._meta.get('allow_inheritance', True) is False):
                 data['_cls'] = self._class_name
-                data['_types'] = self._superclasses.keys() + [self._class_name]
+                data['_types'] = list(self._superclasses.keys()) + [self._class_name]
             if '_id' in data and not data['_id']:
                 del data['_id']
         finally:
@@ -799,7 +803,7 @@ class BaseDocument(object):
         # class if unavailable
         class_name = son.pop(u'_cls', cls._class_name)
 
-        data = dict((str(key), value) for key, value in son.items())
+        data = dict((str(key), value) for key, value in list(son.items()))
 
         if '_types' in data:
             del data['_types']
@@ -894,7 +898,7 @@ class MongoComment(object):
                 sock.close()
 
             last_stacks = traceback.extract_stack(limit=cls.AUTO_FRAME_LIMIT)
-            for i in xrange(-3, -len(last_stacks) - 1, -1):
+            for i in range(-3, -len(last_stacks) - 1, -1):
                 filename, line, functionname, text = last_stacks[i]
 
                 if cls.blacklisted(filename):

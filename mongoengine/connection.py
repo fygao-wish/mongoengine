@@ -1,3 +1,5 @@
+from builtins import str
+from builtins import object
 from pymongo.mongo_client import MongoClient
 from motor.motor_tornado import MotorClient
 from pymongo.read_preferences import ReadPreference

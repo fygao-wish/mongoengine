@@ -1,8 +1,14 @@
+from future import standard_library
+standard_library.install_aliases()
+from builtins import next
+from builtins import zip
+from builtins import str
+from builtins import range
 import pymongo
 import bson
 import unittest
 import mock
-import cPickle
+import pickle
 
 from datetime import datetime
 
@@ -213,7 +219,7 @@ class DocumentTest(unittest.TestCase):
 
         list_stats = []
 
-        for i in xrange(10):
+        for i in range(10):
             s = Stats()
             s.save()
             list_stats.append(s)
@@ -986,7 +992,7 @@ class DocumentTest(unittest.TestCase):
 
             name = mongoengine.fields.StringField()
 
-        doc_ids = [bson.ObjectId() for i in xrange(5)]
+        doc_ids = [bson.ObjectId() for i in range(5)]
 
         # unsharded and non-ID sharded collections don't have anything injected
         self.assertEquals(UnshardedCollection._by_ids_key(doc_ids),
@@ -1015,8 +1021,8 @@ class DocumentTest(unittest.TestCase):
         person = Citizen(age=20)
         person.save()
 
-        pickled = cPickle.dumps(person)
-        restored = cPickle.loads(pickled)
+        pickled = pickle.dumps(person)
+        restored = pickle.loads(pickled)
 
         self.assertEqual(person, restored)
         self.assertEqual(person.age, restored.age)

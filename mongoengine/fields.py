@@ -1,4 +1,6 @@
 from __future__ import absolute_import
+from builtins import str
+from past.builtins import basestring
 from .base import BaseField, ObjectIdField, \
     ValidationError, get_document, FieldStatus
 from .document import Document, EmbeddedDocument
@@ -54,10 +56,10 @@ class StringField(BaseField):
         super(StringField, self).__init__(**kwargs)
 
     def to_python(self, value):
-        return unicode(value)
+        return str(value)
 
     def validate(self, value):
-        assert isinstance(value, (str, unicode, re._pattern_type)), \
+        assert isinstance(value, (str, str, re._pattern_type)), \
             "type of '%s' is not str or unicode" % value
 
         if self.max_length is not None and len(value) > self.max_length:
@@ -180,7 +182,7 @@ class FloatField(BaseField):
         return float(value)
 
     def validate(self, value):
-        if isinstance(value, (int, long)):
+        if isinstance(value, (int, int)):
             value = float(value)
         assert isinstance(value, float)
 
@@ -202,11 +204,11 @@ class DecimalField(BaseField):
 
     def to_python(self, value):
         if not isinstance(value, basestring):
-            value = unicode(value)
+            value = str(value)
         return decimal.Decimal(value)
 
     def to_mongo(self, value):
-        return unicode(value)
+        return str(value)
 
     def validate(self, value):
         if not isinstance(value, decimal.Decimal):
@@ -376,7 +378,7 @@ class ListField(BaseField):
 
         if len(set(value) - set(self.choices)) > 0:
             raise ValidationError("Each element must be one of %s."
-                % unicode(self.choices))
+                % str(self.choices))
 
     def validate(self, value):
         """Make sure that a list of valid fields is being used.
@@ -419,7 +421,7 @@ class SortedListField(ListField):
     _ordering = None
 
     def __init__(self, field, **kwargs):
-        if 'ordering' in kwargs.keys():
+        if 'ordering' in list(kwargs.keys()):
             self._ordering = kwargs.pop('ordering')
         super(SortedListField, self).__init__(field, **kwargs)
 

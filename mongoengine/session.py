@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+from builtins import object
 import collections
 import greenlet
 
@@ -12,7 +13,7 @@ from .document import wait_for_future
 __all__ = ['start_session', 'start_transaction']
 
 
-class ClientSessionContext():
+class ClientSessionContext(object):
     def __init__(self, session):
         self.session = session
 
@@ -40,7 +41,7 @@ def start_session(conn_name=None, causal_consistency=True,
     return ClientSessionContext(session)
 
 
-class TransactionContext():
+class TransactionContext(object):
     def __init__(self, session):
         self.session = session
 

@@ -1,3 +1,4 @@
+from builtins import object
 # -*- coding: utf-8 -*-
 
 __all__ = ['pre_init', 'post_init', 'pre_save', 'post_save',
