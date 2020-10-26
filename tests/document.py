@@ -1060,10 +1060,10 @@ class DocumentTest(unittest.TestCase):
         Citizen.find_raw = find_raw
         Citizen._from_augmented_son = MagicMock(return_value=None)
 
-        Citizen.find_iter({}, max_time_ms=None).next()
-        Citizen.find_iter({}, max_time_ms=0).next()
-        Citizen.find_iter({}, max_time_ms=-1).next()
-        Citizen.find_iter({}, max_time_ms=1000).next()
+        next(Citizen.find_iter({}, max_time_ms=None))
+        next(Citizen.find_iter({}, max_time_ms=0))
+        next(Citizen.find_iter({}, max_time_ms=-1))
+        next(Citizen.find_iter({}, max_time_ms=1000))
 
         a,b,c,d = find_raw.call_args_list
 

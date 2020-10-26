@@ -100,7 +100,7 @@ class GridFSStorage(Storage):
         count = itertools.count(1)
         while self.exists(name):
             # file_ext includes the dot.
-            name = os.path.join("%s_%s%s" % (file_root, count.next(), file_ext))
+            name = os.path.join("%s_%s%s" % (file_root, next(count), file_ext))
 
         return name
 

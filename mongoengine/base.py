@@ -1,5 +1,6 @@
-from queryset import QuerySet, QuerySetManager
-from queryset import DoesNotExist, MultipleObjectsReturned
+from __future__ import absolute_import
+from .queryset import QuerySet, QuerySetManager
+from .queryset import DoesNotExist, MultipleObjectsReturned
 
 import copy
 import sys
@@ -236,7 +237,7 @@ class ObjectIdField(BaseField):
         if not isinstance(value, bson.objectid.ObjectId):
             try:
                 return bson.objectid.ObjectId(unicode(value))
-            except Exception, e:
+            except Exception as e:
                 if self.dup_check:
                     #e.message attribute has been deprecated since Python 2.6
                     raise ValidationError(unicode(e))
@@ -569,7 +570,7 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
             assert meta['hash_field'] in new_class._fields, \
                     "The field you want to hash doesn't exist"
 
-            from fields import IntField
+            from .fields import IntField
 
             field = IntField(db_field=meta['hash_db_field'], required=True)
             new_class._fields['shard_hash'] = field
@@ -683,7 +684,7 @@ class BaseDocument(object):
             if value is not None:
                 try:
                     field._validate(value)
-                except (ValueError, AttributeError, AssertionError), e:
+                except (ValueError, AttributeError, AssertionError) as e:
                     raise ValidationError('Invalid value for field of type "%s": %s'
                                           % (field.__class__.__name__, value))
             elif field.required:

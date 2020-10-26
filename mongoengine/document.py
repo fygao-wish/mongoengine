@@ -1,7 +1,8 @@
-from base import (DocumentMetaclass, TopLevelDocumentMetaclass, BaseDocument,
+from __future__ import absolute_import
+from .base import (DocumentMetaclass, TopLevelDocumentMetaclass, BaseDocument,
                   ValidationError, MongoComment, get_document, get_embedded_doc_fields,
                   FieldStatus, FieldNotLoadedError)
-from queryset import OperationError
+from .queryset import OperationError
 import contextlib
 import pymongo
 import pymongo.helpers
@@ -17,11 +18,11 @@ import socket
 import sys
 import traceback
 import logging
-from timer import log_slow_event
+from .timer import log_slow_event
 import warnings
 
 from bson import SON, ObjectId, DBRef
-from connection import _get_db, _get_slave_ok, _get_proxy_client, _get_proxy_decider, OpClass
+from .connection import _get_db, _get_slave_ok, _get_proxy_client, _get_proxy_decider, OpClass
 
 from wishwms.cl_utils.greenletutil import CLGreenlet, GreenletUtil
 
@@ -156,7 +157,7 @@ class Document(BaseDocument):
 
         if self._meta['hash_field']:
             # if we're hashing the ID and it hasn't been set yet, autogenerate it
-            from fields import ObjectIdField
+            from .fields import ObjectIdField
             if self._meta['hash_field'] == self._meta['id_field'] and \
                not self.id and isinstance(self._fields['id'], ObjectIdField):
                 self.id = ObjectId()
@@ -211,7 +212,7 @@ class Document(BaseDocument):
                     wait_for_future(collection.replace_one(
                             {"_id" : doc["_id"]}, doc, upsert=True, session=session))
                 object_id = doc["_id"]
-        except (pymongo.errors.OperationFailure, ProxiedGrpcError, RPCException), err:
+        except (pymongo.errors.OperationFailure, ProxiedGrpcError, RPCException) as err:
             message = 'Could not save document (%s)'
             if u'duplicate key' in unicode(err):
                 message = u'Tried to save duplicate unique keys (%s)'
@@ -229,7 +230,7 @@ class Document(BaseDocument):
         object_id = self._fields[id_field].to_mongo(self[id_field])
         try:
             self.remove({id_field: object_id}, session=session)
-        except (pymongo.errors.OperationFailure, ProxiedGrpcError, RPCException), err:
+        except (pymongo.errors.OperationFailure, ProxiedGrpcError, RPCException) as err:
             message = u'Could not delete document (%s)' % err.message
             raise OperationError(message)
 
@@ -343,7 +344,7 @@ class Document(BaseDocument):
                         pass
                 else:
                     raise
-            except (pymongo.errors.OperationFailure, ProxiedGrpcError, RPCException), err:
+            except (pymongo.errors.OperationFailure, ProxiedGrpcError, RPCException) as err:
                 message = u'Could not perform bulk operation (%s)' % err.message
                 raise OperationError(message)
         finally:
@@ -1124,7 +1125,7 @@ class Document(BaseDocument):
                 with log_slow_event('getmore', cls.__name__, None):
                     # the StopIteration from .next() will bubble up and kill
                     # this while loop
-                    doc = cur.next()
+                    doc = next(cur)
 
                     # handle pymongo letting an error document slip through
                     # (T18431 / CS-22167). convert it into an exception
@@ -1583,7 +1584,7 @@ class Document(BaseDocument):
     @staticmethod
     def _transform_value(value, context, op=None, validate=True, fields=False,
             embeddeddoc=False):
-        from fields import DictField, EmbeddedDocumentField, ListField, \
+        from .fields import DictField, EmbeddedDocumentField, ListField, \
                            ArbitraryField
 
         VALIDATE_OPS = ['$set', '$inc', None, '$eq', '$gte', '$lte', '$lt',
@@ -1761,7 +1762,7 @@ class Document(BaseDocument):
             If no conversion is necessary, just return the original value
         """
 
-        from fields import ReferenceField, ObjectIdField, ListField
+        from .fields import ReferenceField, ObjectIdField, ListField
 
         # not an op we can work with
         if not op_type:
@@ -1834,7 +1835,7 @@ class Document(BaseDocument):
 
     @staticmethod
     def _transform_key(key, context, prefix='', is_find=False):
-        from fields import BaseField, DictField, ListField, \
+        from .fields import BaseField, DictField, ListField, \
                             EmbeddedDocumentField, ArbitraryField
 
         parts = key.split('.', 1)

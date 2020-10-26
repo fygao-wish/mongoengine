@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import collections
 import greenlet
 
@@ -5,8 +6,8 @@ from pymongo.mongo_client import MongoClient
 from motor.motor_tornado import MotorClient, MotorClientSession
 from pymongo.read_preferences import ReadPreference
 
-from connection import _get_db, _connections
-from document import wait_for_future
+from .connection import _get_db, _connections
+from .document import wait_for_future
 
 __all__ = ['start_session', 'start_transaction']
 

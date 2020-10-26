@@ -1,9 +1,10 @@
-from base import BaseField, ObjectIdField, \
+from __future__ import absolute_import
+from .base import BaseField, ObjectIdField, \
     ValidationError, get_document, FieldStatus
-from document import Document, EmbeddedDocument
-from connection import _get_db
+from .document import Document, EmbeddedDocument
+from .connection import _get_db
 from operator import itemgetter
-from queryset import DoesNotExist
+from .queryset import DoesNotExist
 
 
 import re
@@ -213,7 +214,7 @@ class DecimalField(BaseField):
                 value = str(value)
             try:
                 value = decimal.Decimal(value)
-            except Exception, exc:
+            except Exception as exc:
                 raise ValidationError('Could not convert to decimal: %s' % exc)
 
         if self.min_value is not None and value < self.min_value:
@@ -386,7 +387,7 @@ class ListField(BaseField):
 
         try:
             [self.field.validate(item) for item in value]
-        except Exception, err:
+        except Exception as err:
             raise ValidationError('Invalid ListField item (%s)' % str(item))
 
     def prepare_query_value(self, op, value):
