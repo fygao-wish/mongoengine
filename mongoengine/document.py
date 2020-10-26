@@ -65,7 +65,7 @@ class EmbeddedDocument(with_metaclass(DocumentMetaclass, BaseDocument)):
     fields on :class:`~mongoengine.Document`\ s through the
     :class:`~mongoengine.EmbeddedDocumentField` field type.
     """
-
+    __metaclass__ = DocumentMetaclass
 
 class WrappedCounter(object):
 
@@ -130,6 +130,7 @@ class Document(with_metaclass(TopLevelDocumentMetaclass, BaseDocument)):
     names. Index direction may be specified by prefixing the field names with
     a **+** or **-** sign.
     """
+    __metaclass__ = TopLevelDocumentMetaclass
 
     MAX_AUTO_RECONNECT_TRIES = 6
     AUTO_RECONNECT_SLEEP = 5

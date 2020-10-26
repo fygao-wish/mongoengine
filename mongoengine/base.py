@@ -710,15 +710,13 @@ class BaseDocument(object):
             all_subclasses.update(subclass._get_subclasses())
         return all_subclasses
 
-    @apply
-    def pk():
-        """Primary key alias
-        """
-        def fget(self):
-            return getattr(self, self._meta['id_field'])
-        def fset(self, value):
-            return setattr(self, self._meta['id_field'], value)
-        return property(fget, fset)
+    @property
+    def pk(self):
+        return getattr(self, self._meta['id_field'])
+
+    @pk.setter
+    def pk(self, value):
+        return setattr(self, self._meta['id_field'], value)
 
     def __iter__(self):
         return iter(self._fields)
@@ -763,6 +761,8 @@ class BaseDocument(object):
 
     def __str__(self):
         if hasattr(self, '__unicode__'):
+            if sys.version_info[0] >= 3:
+                return self.__unicode__()
             return str(self).encode('utf-8')
         return '%s object' % self.__class__.__name__
 

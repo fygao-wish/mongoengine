@@ -13,7 +13,7 @@ __all__ = (document.__all__ + fields.__all__ + connection.__all__ +
 
 __author__ = 'Harry Marr'
 
-VERSION = ("wishwms-0", 4, 2)
+VERSION = ("wishwms-0", 4, "2p3")
 
 def get_version():
     version = '%s.%s' % (VERSION[0], VERSION[1])
