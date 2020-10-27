@@ -1,5 +1,4 @@
 from __future__ import print_function
-from builtins import filter
 from setuptools import setup, find_packages
 import os
 
@@ -21,7 +20,11 @@ def get_version(version_tuple):
 # import it as it depends on PyMongo and PyMongo isn't installed until this
 # file is read
 init = os.path.join(os.path.dirname(__file__), 'mongoengine', '__init__.py')
-version_line = next(filter(lambda l: l.startswith('VERSION'), open(init)))
+version_line = None
+for line in open(init):
+    if line.startswith('VERSION'):
+        version_line = line
+        break
 VERSION = get_version(eval(version_line.split('=')[-1]))
 print(VERSION)
 
