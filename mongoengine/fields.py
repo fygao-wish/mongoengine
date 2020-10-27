@@ -1,5 +1,5 @@
 from __future__ import absolute_import
-from builtins import str
+from builtins import str, bytes
 from past.builtins import basestring
 from .base import BaseField, ObjectIdField, \
     ValidationError, get_document, FieldStatus
@@ -59,7 +59,7 @@ class StringField(BaseField):
         return str(value)
 
     def validate(self, value):
-        assert isinstance(value, (str, str, re._pattern_type)), \
+        assert isinstance(value, (str, bytes, re._pattern_type)), \
             "type of '%s' is not str or unicode" % value
 
         if self.max_length is not None and len(value) > self.max_length:
