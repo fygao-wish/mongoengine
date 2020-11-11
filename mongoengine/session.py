@@ -49,11 +49,7 @@ class TransactionContext(object):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.session.__class__.__name__.endswith('MotorClientSession'):
-            pymongo_session = self.session.delegate
-        else:
-            pymongo_session = self.session
-        if pymongo_session._in_transaction:
+        if self.session.in_transaction:
             if exc_val is None:
                 wait_for_future(self.session.commit_transaction())
             else:
