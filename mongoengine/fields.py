@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 from builtins import str, bytes
+from future.utils import native
 from past.builtins import basestring
 from .base import BaseField, ObjectIdField, \
     ValidationError, get_document, FieldStatus
@@ -628,10 +629,10 @@ class BinaryField(BaseField):
 
     def to_python(self, value):
         # Returns str not unicode as this is binary data
-        return str(value)
+        return native(bytes(value))
 
     def validate(self, value):
-        assert isinstance(value, str)
+        assert isinstance(value, bytes)
 
         if self.max_bytes is not None and len(value) > self.max_bytes:
             raise ValidationError('Binary value is too long')
