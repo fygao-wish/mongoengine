@@ -63,6 +63,9 @@ class StringField(BaseField):
         assert isinstance(value, (str, bytes, re._pattern_type)), \
             "type of '%s' is not str or unicode" % value
 
+        if type(value) == bytes: # can't use isinstance, as str is bytes in PY2
+            raise ValidationError("Can't save bytes to StringField")
+
         if self.max_length is not None and len(value) > self.max_length:
             raise ValidationError('String value is too long')
 
