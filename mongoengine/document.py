@@ -1044,11 +1044,10 @@ class Document(with_metaclass(TopLevelDocumentMetaclass, BaseDocument)):
     @classmethod
     def aggregate(cls, pipeline=None, session=None, hint=None, **kwargs):
         proxy_client = cls._get_proxy_client()
-        pykwargs = {}
         if hint:
             hint = cls._transform_hint(hint)
             # HACK pymongo aggregate won't transform hint automatically
-            pykwargs["hint"] = pymongo.helpers._index_document(hint)
+            kwargs["hint"] = pymongo.helpers._index_document(hint)
         if proxy_client:
             if cls._get_read_decider():
                 results = []
@@ -1056,12 +1055,13 @@ class Document(with_metaclass(TopLevelDocumentMetaclass, BaseDocument)):
                         cls, pipeline=pipeline):
                     results.append(doc)
                 return results
+        cls._transformKwargs(kwargs)
         cur = cls._pymongo(
                 read_preference=pymongo.read_preferences.ReadPreference.SECONDARY
             ).aggregate(
                 pipeline,
                 session=session,
-                **pykwargs
+                **kwargs
             )
         results = []
         if cur:
@@ -1301,34 +1301,37 @@ class Document(with_metaclass(TopLevelDocumentMetaclass, BaseDocument)):
         for i in range(cls.MAX_AUTO_RECONNECT_TRIES):
             try:
                 read_pref = _get_slave_ok(slave_ok).read_pref
+                if max_time_ms:
+                    kwargs["maxTimeMS"] = max_time_ms
+                cls._transformKwargs(kwargs)
                 return wait_for_future(cls._pymongo(read_preference=read_pref).count_documents(
-                    spec, session=session, *kwargs
+                    spec, session=session, **kwargs
                 ))
             except pymongo.errors.AutoReconnect:
                 if i == (cls.MAX_AUTO_RECONNECT_TRIES - 1):
                     raise
                 else:
                     _sleep(cls.AUTO_RECONNECT_SLEEP)
-            except pymongo.errors.ExecutionTimeout:
-                pycur = cls._pycursor(cur)
-                execution_timeout_logger.info({
-                    '_comment' : str(pycur._Cursor__comment),
-                    '_max_time_ms' : pycur._Cursor__max_time_ms,
-                })
-                if cls.ALLOW_TIMEOUT_RETRY and (max_time_ms is None or \
-                max_time_ms < cls.MAX_TIME_MS):
-                    kwargs.pop('comment', None)
-                    return cls.count(
-                        spec, slave_ok=slave_ok,
-                        comment=comment,
-                        max_time_ms=cls.RETRY_MAX_TIME_MS,
-                        timeout_value=timeout_value,
-                        session=session,
-                        **kwargs
-                    )
-                if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
-                    return timeout_value
-                raise
+            # except pymongo.errors.ExecutionTimeout:
+            #     pycur = cls._pycursor(cur)
+            #     execution_timeout_logger.info({
+            #         '_comment' : str(pycur._Cursor__comment),
+            #         '_max_time_ms' : pycur._Cursor__max_time_ms,
+            #     })
+            #     if cls.ALLOW_TIMEOUT_RETRY and (max_time_ms is None or \
+            #     max_time_ms < cls.MAX_TIME_MS):
+            #         kwargs.pop('comment', None)
+            #         return cls.count(
+            #             spec, slave_ok=slave_ok,
+            #             comment=comment,
+            #             max_time_ms=cls.RETRY_MAX_TIME_MS,
+            #             timeout_value=timeout_value,
+            #             session=session,
+            #             **kwargs
+            #         )
+            #     if timeout_value is not cls.NO_TIMEOUT_DEFAULT:
+            #         return timeout_value
+            #     raise
 
     @classmethod
     def update(cls, spec, document, upsert=False, multi=True,
@@ -1962,6 +1965,12 @@ class Document(with_metaclass(TopLevelDocumentMetaclass, BaseDocument)):
             return cur
         # Motor
         return cur.delegate
+
+    @staticmethod
+    def _transformKwargs(kwargs):
+        maxTimeMS = kwargs.pop("max_time_ms", None)
+        if maxTimeMS:
+            kwargs["maxTimeMS"] = maxTimeMS
 
 class MapReduceDocument(object):
     """A document returned from a map/reduce query.
