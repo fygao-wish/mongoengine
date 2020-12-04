@@ -487,7 +487,7 @@ class TopLevelDocumentMetaclass(DocumentMetaclass):
             'hash_db_field': '_h',
             'sharded': True,
 
-            'write_concern': 1
+            'write_concern': None
         }
         meta.update(base_meta)
 

@@ -14,6 +14,7 @@ import pymongo.helpers
 import pymongo.operations
 import pymongo.cursor
 import pymongo.command_cursor
+import pymongo.write_concern
 from tornado.concurrent import Future
 import tornado.ioloop
 import time
@@ -629,9 +630,13 @@ class Document(with_metaclass(TopLevelDocumentMetaclass, BaseDocument)):
             cls._pymongo_collection = {}
 
         if use_async not in cls._pymongo_collection:
-            cls._pymongo_collection[use_async] = \
-                    _get_db(cls._meta['db_name'],
-                            allow_async=use_async)[cls._meta['collection']]
+            col = _get_db(cls._meta['db_name'], allow_async=use_async)[cls._meta['collection']]
+            write_concern = cls._meta.get('write_concern')
+            if write_concern:
+                col = col.with_options(
+                    write_concern=pymongo.write_concern.WriteConcern(w=write_concern)
+                )
+            cls._pymongo_collection[use_async] = col
 
         if read_preference:
             return cls._pymongo_collection[use_async].with_options(read_preference=read_preference)
