@@ -1049,6 +1049,7 @@ class Document(with_metaclass(TopLevelDocumentMetaclass, BaseDocument)):
     @classmethod
     def aggregate(cls, pipeline=None, session=None, hint=None, **kwargs):
         proxy_client = cls._get_proxy_client()
+        kwargs.pop("slave_ok", None) # useless argument, always query from secondary
         if hint:
             hint = cls._transform_hint(hint)
             # HACK pymongo aggregate won't transform hint automatically
